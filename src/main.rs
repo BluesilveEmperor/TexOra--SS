@@ -14,7 +14,6 @@ mod settings;
 mod syscheck;
 mod icons;
 mod tabs;
-mod templates;
 mod ui_chrome;
 mod ui_panels;
 mod ui_present;
@@ -57,7 +56,6 @@ impl eframe::App for Root {
         }
         a.duration_popup(&ctx);
         a.help_windows(&ctx);
-        a.template_picker(&ctx);
         a.audience_window(&ctx);
         a.screenshot_tick(&ctx);
     }
@@ -86,8 +84,6 @@ const HELP: &str = "TeXora {version}: present PDF and LaTeX Beamer slides
 Usage: TeXora [file.pdf | file.tex] [options]
 
   file.pdf | file.tex      open this presentation
-  --new <file.tex>         create a presentation from a Beamer template and open it
-  --template <name>        with --new: classic, midnight, minimal, conference or sunrise
   --version                show the version and exit
   --help, -h               show this list and exit
   --self-test[=file.png]   check this copy works, with no window, and exit (0 means it passed)
@@ -104,7 +100,7 @@ For testing and screenshots:
 Full details: README.md, or ? > Documentation in the app.";
 
 fn parse_args() -> Result<Args, String> {
-    let mut a = Args { file: None, screenshot: None, view: None, goto: None, demo: false, new_deck: None, template: None, script: vec![], window: None };
+    let mut a = Args { file: None, screenshot: None, view: None, goto: None, demo: false, script: vec![], window: None };
     let mut it = std::env::args().skip(1);
     while let Some(x) = it.next() {
         if x == "--version" {
@@ -126,8 +122,6 @@ fn parse_args() -> Result<Args, String> {
                     Some([w.parse().ok()?, h.parse().ok()?])
                 })
             }
-            "--new" => a.new_deck = it.next().map(PathBuf::from),
-            "--template" => a.template = it.next(),
             "--script" => a.script = it.next().unwrap_or_default().split(';').map(str::to_string).collect(),
             "--help" | "-h" => {
                 println!("{}", HELP.replace("{version}", update::VERSION));

@@ -2,7 +2,7 @@
 
 To use TeXora from a terminal, choose **? > Command-line tool**. To see what this computer has for TeXora, choose **? > System check**.
 
-Open a PDF or a LaTeX file from the start page, or drop one on the window. Choose **New LaTeX presentation** to pick one of five templates (Classic Green, Midnight, Minimal White, Conference or Sunrise), each with its own colours and style. Edit the file in your own LaTeX editor: TeXora rebuilds the slides every time you save it. Recent files stay on the start page.
+Open a PDF or a LaTeX file from the start page, or drop one on the window. Write your presentation in your own LaTeX editor: TeXora rebuilds the slides every time you save it. Recent files stay on the start page.
 
 ## Giving a talk
 
@@ -75,7 +75,7 @@ TeXora needs TeX Live, MacTeX or MiKTeX installed to compile. PDF presentations 
 
 ## Updates
 
-Choose **Check for updates** in the **?** menu. If no update is shown, you have the latest version. TeXora also looks once when it starts, and a small dot on the **?** button means a newer version is ready. You can turn this off in **Settings**.
+TeXora looks for a new version when it starts and every few hours while it stays open. When one is out, a notice appears in the lower right corner by itself: **See what's new** shows what changed and a download for this computer, **Later** hides it until TeXora starts again, and **Skip this version** hides it until an even newer one comes out. A dot on the **?** button stays either way. The notice never appears while the audience window is open. Choose **Check for updates** in the **?** menu to ask at any time. You can turn the automatic look off in **Settings**.
 
 ## Keyboard shortcuts
 

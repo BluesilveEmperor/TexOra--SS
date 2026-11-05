@@ -479,10 +479,15 @@ impl App {
         }
         if let Some(rx) = &self.update_rx {
             if let Ok(o) = rx.try_recv() {
+                // A newer version found by hand also lights the dot on the ? button.
+                if matches!(o, update::Outcome::Available { .. } | update::Outcome::UpToDate) {
+                    self.update_notice = Some(o.clone());
+                }
                 self.update_result = Some(o);
                 self.update_rx = None;
             }
         }
+        self.update_toast(ctx);
         if self.cli_open {
             self.cli_window(ctx);
         }
@@ -509,14 +514,23 @@ impl App {
                     Some(update::Outcome::Failed(m)) => {
                         ui.label(RichText::new(m).color(BAD));
                     }
-                    Some(update::Outcome::Available { version, url, notes }) => {
+                    Some(update::Outcome::Available { version, url, notes, download: file }) => {
                         ui.label(RichText::new(format!("TeXora {version} is available.")).color(LEAF_DARK));
                         if !notes.is_empty() {
                             ScrollArea::vertical().max_height(220.0).show(ui, |ui| markdown(ui, notes, 13.5));
                         }
-                        if !url.is_empty() && ui.button("Open download page").clicked() {
-                            download = Some(url.clone());
-                        }
+                        ui.add_space(4.0);
+                        ui.horizontal_wrapped(|ui| {
+                            if let Some((name, link)) = file {
+                                let b = Button::new(RichText::new(format!("Download {name}")).color(Color32::WHITE)).fill(LEAF);
+                                if ui.add(b).on_hover_text("The package for this computer. Install it over the one you have; your settings stay.").clicked() {
+                                    download = Some(link.clone());
+                                }
+                            }
+                            if !url.is_empty() && ui.button("Open download page").clicked() {
+                                download = Some(url.clone());
+                            }
+                        });
                     }
                 }
                 ui.add_space(8.0);
@@ -530,6 +544,62 @@ impl App {
             if close {
                 self.update_open = false;
             }
+        }
+    }
+
+    /// Shown by itself in the lower right when a newer version exists, without any click. "Later" hides
+    /// it until the next start; "Skip this version" until an even newer one comes out. Never shown while
+    /// the audience window is open, so it cannot interrupt a talk; the dot on ? stays either way.
+    fn update_toast(&mut self, ctx: &Context) {
+        self.update_toast = false;
+        let Some(update::Outcome::Available { version, .. }) = &self.update_notice else { return };
+        let version = version.clone();
+        if self.update_later || self.update_open || self.audience_open || self.st.skipped_update == version {
+            return;
+        }
+        self.update_toast = true;
+        let mut action = 0;
+        Area::new(sid("update-toast")).order(Order::Foreground).anchor(Align2::RIGHT_BOTTOM, vec2(-18.0, -92.0)).show(ctx, |ui| {
+            Frame::new()
+                .fill(SURFACE)
+                .stroke(Stroke::new(1.0, LINE))
+                .corner_radius(10)
+                .inner_margin(Margin::same(14))
+                .shadow(Shadow { offset: [0, 4], blur: 18, spread: 0, color: Color32::from_black_alpha(40) })
+                .show(ui, |ui| {
+                    ui.set_width(300.0);
+                    ui.horizontal(|ui| {
+                        let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
+                        ui.painter().circle_filled(r.center(), 4.5, LEAF);
+                        ui.label(RichText::new("Update available").size(15.5).family(FontFamily::Name("medium".into())).color(INK));
+                    });
+                    ui.label(RichText::new(format!("TeXora {version} is ready to download. You have {}.", update::VERSION)).size(13.0).color(MUTED));
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.add(Button::new(RichText::new("See what's new").color(Color32::WHITE)).fill(LEAF)).clicked() {
+                            action = 1;
+                        }
+                        if ui.button("Later").clicked() {
+                            action = 2;
+                        }
+                        if ui.button("Skip this version").clicked() {
+                            action = 3;
+                        }
+                    });
+                });
+        });
+        match action {
+            1 => {
+                self.update_result = self.update_notice.clone();
+                self.update_open = true;
+                self.update_later = true;
+            }
+            2 => self.update_later = true,
+            3 => {
+                self.st.skipped_update = version;
+                let _ = self.st.save();
+            }
+            _ => {}
         }
     }
 
@@ -644,10 +714,6 @@ impl App {
 
     fn menus(&mut self, ui: &mut Ui) {
         ui.menu_button("File", |ui| {
-            if ui.button("New LaTeX presentation…").clicked() {
-                self.new_presentation_dialog();
-                ui.close();
-            }
             if ui.button("Open PDF…").clicked() {
                 self.open_dialog("PDF presentation", &["pdf"]);
                 ui.close();

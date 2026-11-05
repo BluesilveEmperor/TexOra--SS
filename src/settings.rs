@@ -230,8 +230,8 @@ pub struct Settings {
     pub editor_size: f32,
     /// Look for a newer version when TeXora starts.
     pub check_updates: bool,
-    /// The template chosen last for a new presentation.
-    pub last_template: String,
+    /// A newer version the speaker chose to skip: its update notice is not shown again.
+    pub skipped_update: String,
     pub layout: Layout,
 }
 
@@ -249,7 +249,7 @@ impl Default for Settings {
             notes_size: 26.0,
             editor_size: 14.0,
             check_updates: true,
-            last_template: String::new(),
+            skipped_update: String::new(),
             layout: Layout::default(),
         }
     }

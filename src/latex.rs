@@ -504,14 +504,14 @@ mod tests {
     }
 
     #[test]
-    fn new_presentation_template_compiles() {
+    fn sample_lecture_compiles() {
         if find_tool("pdflatex").is_none() {
             return;
         }
-        let d = std::env::temp_dir().join("txp-template");
+        let d = std::env::temp_dir().join("txp-sample-compile");
         std::fs::create_dir_all(&d).unwrap();
         let t = d.join("new.tex");
-        std::fs::write(&t, include_str!("../assets/templates/classic.tex")).unwrap();
+        std::fs::write(&t, include_str!("../assets/sample/texora-sample.tex")).unwrap();
         let r = compile(&t, Engine::Auto);
         assert!(r.ok, "{:?} {}", r.problems, r.note);
     }

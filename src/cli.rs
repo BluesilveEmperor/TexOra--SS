@@ -69,12 +69,11 @@ pub fn shell_alias(path: &str) -> String {
 }
 
 pub fn cli_help(os: Os, path: &str) -> CliHelp {
-    const EXAMPLES: [(&str, &str); 5] = [
+    const EXAMPLES: [(&str, &str); 4] = [
         ("--help", "every option"),
         ("--version", "which version this is"),
         ("--self-test", "check this copy works"),
         ("talk.pdf", "open a presentation"),
-        ("--new talk.tex", "start a new LaTeX presentation"),
     ];
     match os {
         Os::Windows => {

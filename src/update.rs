@@ -15,7 +15,8 @@ pub const DEVELOPER: &str = "Khalid Alkhaldi";
 #[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     UpToDate,
-    Available { version: String, url: String, notes: String },
+    /// `download` is the package for this computer, as (file name, address), when the release has one.
+    Available { version: String, url: String, notes: String, download: Option<(String, String)> },
     Failed(String),
 }
 
@@ -55,14 +56,41 @@ pub fn interpret(body: &str, current: &str) -> Outcome {
         return Outcome::Failed("The update information has no version number.".to_string());
     };
     if is_newer(tag, current) {
+        let files: Vec<(String, String)> = v["assets"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| Some((x["name"].as_str()?.to_string(), x["browser_download_url"].as_str()?.to_string()))).collect())
+            .unwrap_or_default();
         Outcome::Available {
             version: tag.trim_start_matches(['v', 'V']).to_string(),
             url: v["html_url"].as_str().unwrap_or("").to_string(),
             notes: v["body"].as_str().unwrap_or("").trim().to_string(),
+            download: pick_asset(&files, std::env::consts::OS, std::env::consts::ARCH, std::path::Path::new("/usr/bin/dpkg").exists()),
         }
     } else {
         Outcome::UpToDate
     }
+}
+
+/// How often TeXora looks again while it stays open, so a release made during a long session is noticed.
+pub const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
+
+/// The release file that suits this computer: the installer first, the portable package otherwise.
+/// `os` and `arch` are Rust's names (macos, windows, linux; aarch64, x86_64).
+pub fn pick_asset(files: &[(String, String)], os: &str, arch: &str, has_dpkg: bool) -> Option<(String, String)> {
+    let a = if matches!(arch, "aarch64" | "arm64") { "arm64" } else { "x64" };
+    let wanted: Vec<String> = match os {
+        "macos" => vec![format!("-mac-{a}.dmg"), format!("-mac-{a}.zip")],
+        "windows" => vec!["-windows-x64-setup.exe".into(), "-windows-x64.zip".into()],
+        _ => {
+            let mut w = vec![];
+            if has_dpkg {
+                w.push(if a == "arm64" { "_arm64.deb".to_string() } else { "_amd64.deb".to_string() });
+            }
+            w.push(format!("-linux-{a}.tar.gz"));
+            w
+        }
+    };
+    wanted.iter().find_map(|end| files.iter().find(|(n, _)| n.ends_with(end.as_str())).cloned())
 }
 
 fn from_status(status: u16, body: impl FnOnce() -> Option<String>) -> Outcome {
@@ -115,7 +143,68 @@ mod tests {
     #[test]
     fn newer_release_is_reported_with_its_page() {
         let o = interpret(r#"{"tag_name":"v9.0.0","html_url":"https://github.com/a/b/releases/tag/v9.0.0","body":"Better"}"#, "0.0.3");
-        assert_eq!(o, Outcome::Available { version: "9.0.0".into(), url: "https://github.com/a/b/releases/tag/v9.0.0".into(), notes: "Better".into() });
+        assert_eq!(o, Outcome::Available { version: "9.0.0".into(), url: "https://github.com/a/b/releases/tag/v9.0.0".into(), notes: "Better".into(), download: None });
+    }
+
+    fn release_files() -> Vec<(String, String)> {
+        [
+            "SHA256SUMS.txt",
+            "TeXora-1.0.1-linux-arm64.tar.gz",
+            "TeXora-1.0.1-linux-x64.tar.gz",
+            "TeXora-1.0.1-mac-arm64.dmg",
+            "TeXora-1.0.1-mac-arm64.zip",
+            "TeXora-1.0.1-mac-x64.dmg",
+            "TeXora-1.0.1-mac-x64.zip",
+            "TeXora-1.0.1-windows-x64-setup.exe",
+            "TeXora-1.0.1-windows-x64.zip",
+            "texora_1.0.1_amd64.deb",
+            "texora_1.0.1_arm64.deb",
+        ]
+        .iter()
+        .map(|n| (n.to_string(), format!("https://github.com/khalidt/TeXora/releases/download/v1.0.1/{n}")))
+        .collect()
+    }
+
+    #[test]
+    fn each_computer_gets_its_own_package() {
+        let f = release_files();
+        let name = |os, arch, dpkg| pick_asset(&f, os, arch, dpkg).map(|(n, _)| n);
+        assert_eq!(name("macos", "aarch64", false).as_deref(), Some("TeXora-1.0.1-mac-arm64.dmg"));
+        assert_eq!(name("macos", "x86_64", false).as_deref(), Some("TeXora-1.0.1-mac-x64.dmg"));
+        assert_eq!(name("windows", "x86_64", false).as_deref(), Some("TeXora-1.0.1-windows-x64-setup.exe"));
+        assert_eq!(name("linux", "x86_64", true).as_deref(), Some("texora_1.0.1_amd64.deb"));
+        assert_eq!(name("linux", "aarch64", true).as_deref(), Some("texora_1.0.1_arm64.deb"));
+        assert_eq!(name("linux", "x86_64", false).as_deref(), Some("TeXora-1.0.1-linux-x64.tar.gz"));
+        // With no installer for this computer, the portable package is offered; with nothing, no button.
+        let zips: Vec<_> = f.iter().filter(|(n, _)| !n.ends_with(".dmg")).cloned().collect();
+        assert_eq!(pick_asset(&zips, "macos", "aarch64", false).map(|(n, _)| n).as_deref(), Some("TeXora-1.0.1-mac-arm64.zip"));
+        assert_eq!(pick_asset(&[], "macos", "aarch64", false), None);
+    }
+
+    #[test]
+    fn github_release_from_1_0_0_to_1_0_1() {
+        // The shape GitHub's "latest release" answer has, as published for khalidt/TeXora.
+        let assets: Vec<String> = release_files()
+            .iter()
+            .map(|(n, u)| format!(r#"{{"name":"{n}","browser_download_url":"{u}","size":1}}"#))
+            .collect();
+        let body = format!(
+            r#"{{"tag_name":"v1.0.1","name":"TeXora 1.0.1","draft":false,"prerelease":false,"html_url":"https://github.com/khalidt/TeXora/releases/tag/v1.0.1","body":"What is new","assets":[{}]}}"#,
+            assets.join(",")
+        );
+        match interpret(&body, "1.0.0") {
+            Outcome::Available { version, url, notes, download } => {
+                assert_eq!(version, "1.0.1");
+                assert!(url.ends_with("/releases/tag/v1.0.1"));
+                assert_eq!(notes, "What is new");
+                let (name, link) = download.expect("a package for this computer");
+                assert!(name.contains("1.0.1") && link.ends_with(&name));
+            }
+            o => panic!("{o:?}"),
+        }
+        // The same release seen from 1.0.1 itself, or from a later version, is not an update.
+        assert_eq!(interpret(&body, "1.0.1"), Outcome::UpToDate);
+        assert_eq!(interpret(&body, "1.0.2"), Outcome::UpToDate);
     }
 
     #[test]

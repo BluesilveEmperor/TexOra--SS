@@ -198,7 +198,9 @@ jobs:
       - name: Release notes
         run: |
           V=$VER
-          cat > notes.md <<EOF
+          awk -v v="$V" '$0 == "## " v {on=1; print "## What'"'"'s new in TeXora " v; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          cat >> notes.md <<EOF
+
           ## Download TeXora $V
 
           | System | Installer | Portable |

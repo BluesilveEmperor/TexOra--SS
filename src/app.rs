@@ -91,10 +91,6 @@ pub struct Args {
     pub view: Option<String>,
     pub goto: Option<usize>,
     pub demo: bool,
-    /// Create a new presentation at this path and open it.
-    pub new_deck: Option<PathBuf>,
-    /// The template for `new_deck`, by id.
-    pub template: Option<String>,
     /// Window size in points, for checking small screens.
     pub window: Option<[f32; 2]>,
     /// Test input: `w:milliseconds`, `k:Key`, `m:x,y` (move), `d:x,y` (press), `u:x,y` (release), separated by `;`.
@@ -132,7 +128,6 @@ pub struct App {
     /// The box that shows where this copy's command-line tool is.
     pub cli_open: bool,
     /// The template picker for a new presentation, with the template selected.
-    pub template_picker: Option<usize>,
     /// Open Settings at the Required LaTeX packages section once.
     pub show_packages: bool,
     /// ? > System check.
@@ -142,8 +137,14 @@ pub struct App {
     pub update_open: bool,
     pub update_rx: Option<Receiver<crate::update::Outcome>>,
     pub update_result: Option<crate::update::Outcome>,
-    /// What the quiet check at launch found.
+    /// What the quiet check at launch, or a later one, found.
     pub update_notice: Option<crate::update::Outcome>,
+    /// When the last quiet check started.
+    pub update_checked: Option<Instant>,
+    /// The speaker chose "Later" on the update notice: it stays away until TeXora starts again.
+    pub update_later: bool,
+    /// Whether the update notice was on screen in the last frame, for the test report.
+    pub update_toast: bool,
     pub update_bg_rx: Option<Receiver<crate::update::Outcome>>,
     pub focus_search: bool,
     pub duration_open: bool,
@@ -276,7 +277,6 @@ impl App {
             focus_jump: false,
             about_open: false,
             cli_open: false,
-            template_picker: None,
             show_packages: false,
             syscheck_open: false,
             cli_copied: None,
@@ -284,6 +284,9 @@ impl App {
             update_rx: None,
             update_result: None,
             update_notice: None,
+            update_checked: None,
+            update_later: false,
+            update_toast: false,
             update_bg_rx: None,
             focus_search: false,
             duration_open: false,
@@ -365,10 +368,7 @@ impl App {
             Some("textnotes") => app.notes_view = NotesView::Text,
             _ => {}
         }
-        if let Some(p) = &args.new_deck {
-            let t = crate::templates::by_id(args.template.as_deref().unwrap_or(""));
-            app.create_presentation(p, t);
-        } else if wants_deck {
+        if wants_deck {
             match args.file.clone().or_else(ensure_sample) {
                 Some(p) => app.open_path(&p),
                 None => app.status = "Could not open that file.".to_string(),
@@ -717,8 +717,21 @@ impl App {
         }
         if let Some(rx) = &self.update_bg_rx {
             if let Ok(o) = rx.try_recv() {
-                self.update_notice = Some(o);
+                // A failed later look (no internet for a while) keeps what an earlier one found.
+                let keep = matches!(o, crate::update::Outcome::Failed(_)) && self.update_notice.is_some();
+                if !keep {
+                    self.update_notice = Some(o);
+                }
                 self.update_bg_rx = None;
+            }
+        }
+        // Look again every few hours while TeXora stays open, and wake up for it even when idle.
+        if let Some(t) = self.update_checked {
+            let left = crate::update::CHECK_EVERY.saturating_sub(t.elapsed());
+            if left.is_zero() && self.update_bg_rx.is_none() {
+                self.check_updates_quietly(ctx);
+            } else {
+                ctx.request_repaint_after(left);
             }
         }
         if let Some(rx) = &self.req_rx {
@@ -1064,7 +1077,8 @@ impl App {
         }
     }
 
-    /// At launch: looks once in the background and stays silent unless something newer exists.
+    /// At launch, and every few hours after: looks in the background. If something newer exists, a
+    /// notice appears by itself in the corner and a dot marks the ? button; otherwise nothing shows.
     fn check_updates_quietly(&mut self, ctx: &Context) {
         let url = crate::update::update_url();
         // Test pictures never reach the internet unless a test asks for it.
@@ -1074,6 +1088,7 @@ impl App {
         }
         let (tx, rx) = channel();
         self.update_bg_rx = Some(rx);
+        self.update_checked = Some(Instant::now());
         let wake = ctx.clone();
         std::thread::spawn(move || {
             let _ = tx.send(crate::update::check(&url));
@@ -1096,35 +1111,6 @@ impl App {
     pub fn open_dialog(&mut self, label: &str, exts: &[&str]) {
         if let Some(p) = rfd::FileDialog::new().add_filter(label, exts).pick_file() {
             self.open_path(&p);
-        }
-    }
-
-    /// Opens the template picker, on the template chosen last time.
-    pub fn new_presentation_dialog(&mut self) {
-        self.template_picker = Some(crate::templates::by_id(&self.st.last_template));
-    }
-
-    /// Asks where to save, then creates the presentation from template `t`.
-    pub fn save_new_presentation(&mut self, t: usize) {
-        let dialog = rfd::FileDialog::new().add_filter("LaTeX source", &["tex"]).set_file_name("presentation.tex");
-        if let Some(p) = dialog.save_file() {
-            self.create_presentation(&p, t);
-        }
-    }
-
-    /// Writes template `t` to `path`, then compiles and opens it.
-    pub fn create_presentation(&mut self, path: &Path, t: usize) {
-        let path = if path.extension().is_some() { path.to_path_buf() } else { path.with_extension("tex") };
-        let template = &crate::templates::TEMPLATES[t.min(crate::templates::TEMPLATES.len() - 1)];
-        match std::fs::write(&path, template.tex) {
-            Ok(_) => {
-                self.st.last_template = template.id.to_string();
-                let _ = self.st.save();
-                self.open_path(&path);
-                let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                self.status = format!("Created {name}. Edit it in your LaTeX editor; TeXora rebuilds the slides each time you save.");
-            }
-            Err(e) => self.status = format!("Could not create that file: {e}"),
         }
     }
 
@@ -1474,7 +1460,7 @@ impl App {
     pub fn script_report(&self) -> String {
         let ink: usize = self.side.ink.values().map(Vec::len).sum();
         format!(
-            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} picker={:?} packages={}",
+            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} packages={} recent={} toast={} skipped={:?}",
             self.cur + 1,
             self.frame() + 1,
             self.deck.slides.get(self.cur).map(|s| s.step + 1).unwrap_or(0),
@@ -1511,8 +1497,10 @@ impl App {
             self.cli_open,
             self.cli_copied,
             self.syscheck_open,
-            self.template_picker,
             self.show_packages,
+            self.st.recent.len(),
+            self.update_toast,
+            self.st.skipped_update,
         )
     }
 

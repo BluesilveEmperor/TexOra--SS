@@ -334,7 +334,7 @@ impl App {
                 }
             });
             group(ui, "Updates", false, &mut |ui| {
-                ui.checkbox(&mut self.st.check_updates, "Check for updates when TeXora starts");
+                ui.checkbox(&mut self.st.check_updates, "Look for updates by itself (at start and every few hours)");
             });
             group(ui, "Keyboard shortcuts", false, &mut |ui| {
                 ui.label(RichText::new("Click a key, then press the new one. Esc cancels.").size(12.5).color(MUTED));

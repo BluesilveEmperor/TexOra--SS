@@ -24,9 +24,9 @@ rebuilds the slides every time you save it in your own editor.
 
 ## Screenshots
 
-| Home | Choosing a template |
+| Home | Presenter view |
 |---|---|
-| ![Home page with recent files](screenshots/home.png) | ![Five presentation templates with previews](screenshots/templates.png) |
+| ![Home page with recent files](screenshots/home.png) | ![Presenter view with notes, current and next slide](screenshots/presenter.png) |
 
 | Slide and notes, side by side | Every slide at a glance |
 |---|---|
@@ -45,8 +45,6 @@ The audience window shows only the slide, fullscreen on a projector or second sc
 - **LaTeX Beamer**: open a `.tex` file and it compiles with pdfLaTeX, XeLaTeX or LuaLaTeX (chosen for
   you from `% !TEX program` or the packages used). Edit it in any editor; the slides rebuild when you
   save. Compile errors are shown with their line until fixed.
-- **Five templates** for a new presentation: Classic Green, Midnight, Minimal White, Conference and
-  Sunrise, each with its own colours and style.
 - **Required packages**: Settings lists every package, theme and program your file needs, marked
   Installed or Needs download, with how to get it.
 - **Speaker notes** from PDF notes pages (Beamer's `show notes on second screen`), from `\note{}` in the
@@ -60,7 +58,8 @@ The audience window shows only the slide, fullscreen on a projector or second sc
 - **Analytics**: time on each slide for every rehearsal, compared with the last one.
 - **Tabs**: several presentations open at once, each keeping its place, ink and timer.
 - **Configurable shortcuts**, a **System check** (? menu) that shows what your computer has, a
-  **command-line tool**, and update checks against this project's releases.
+  **command-line tool**, and **update notices**: TeXora looks for a new release when it starts and every
+  few hours while it is open, and tells you in a small notice with a download for your computer.
 
 ## Download and install
 
@@ -92,8 +91,8 @@ Nothing else is needed to present PDFs: each package carries the program and its
 
 ## Using it
 
-1. Open a PDF or `.tex` file from Home, or drop it on the window. **New LaTeX presentation** starts from
-   one of the five templates.
+1. Open a PDF or `.tex` file from Home, or drop it on the window. Write your `.tex` file in any LaTeX
+   editor; TeXora compiles and presents it.
 2. Press **F5** to open the audience window, and move with the arrow keys or Space.
 3. Notes: add `\setbeameroption{show notes on second screen=right}` to your Beamer preamble, use
    `\note{...}`, or write `talk.notes.md` beside `talk.pdf` with a `## Slide N` heading per slide.
@@ -127,7 +126,6 @@ All can be changed in Settings. On macOS **Cmd** is used; on Windows and Linux, 
 
 ```sh
 TeXora talk.pdf                          # open a presentation
-TeXora --new talk.tex --template sunrise # start from a template
 TeXora --self-test                       # check this copy works (exit code 0 means it passed)
 TeXora --help                            # every option
 ```
@@ -177,11 +175,19 @@ by the workflow, since it needs Windows.
 | Path | What it holds |
 |---|---|
 | `src/` | The app, in Rust with [egui](https://github.com/emilk/egui) and [PDFium](https://pdfium.googlesource.com/pdfium/). |
-| `assets/` | App icon (`assets/icon.png`), Home picture, fonts, sample lecture and the five templates. |
+| `assets/` | App icon (`assets/icon.png`), Home picture, fonts and the sample lecture. |
 | `scripts/` | Packaging, installer, release and icon scripts. |
 | `installer/` | The Windows installer (Inno Setup). |
 | `.github/workflows/` | Continuous tests and the release workflow. |
 | `screenshots/` | The pictures in this README. |
+
+## Updates
+
+When a new version is published here, TeXora shows a notice in the lower right corner by itself, with
+**See what's new**, **Later** and **Skip this version**, and a dot on the **?** button. The update box
+offers the package for your computer and the release page; install it over your copy and your settings
+stay. **? > Check for updates** asks at any time. Turn the automatic look off in **Settings > Updates**.
+TeXora 1.0.0 shows the dot on **?** only. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Licence
 

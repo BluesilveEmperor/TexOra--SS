@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TeXora
+Comment=Present PDF and LaTeX Beamer slides
+Exec=TeXora %f
+Icon=TeXora
+Terminal=false
+Categories=Office;Presentation;Education;
+MimeType=application/pdf;text/x-tex;

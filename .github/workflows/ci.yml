@@ -1,0 +1,41 @@
+# Builds and tests TeXora on macOS, Linux and Windows for every push and pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxcb1-dev
+      - run: cargo build --locked
+      - run: cargo test --locked
+      - name: Self-test of the built program
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            status=0
+            ./target/debug/TeXora.exe --self-test="$RUNNER_TEMP/report.txt" || status=$?
+            cat "$RUNNER_TEMP/report.txt"
+            exit $status
+          else
+            ./target/debug/TeXora --self-test
+          fi

@@ -1,0 +1,7 @@
+target
+.toolchain
+shots/
+dist/
+vendor/
+backup/
+.DS_Store

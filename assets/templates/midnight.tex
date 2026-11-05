@@ -1,0 +1,103 @@
+%% TeXora template: Midnight. Dark slides with amber highlights, easy on the eyes in a dim room.
+%% Change the colours on the \definecolor lines below; everything else follows them.
+% !TEX program = pdflatex
+\documentclass[aspectratio=169]{beamer}
+\usetheme{default}
+\usepackage{amsmath}
+\definecolor{night}{RGB}{17,24,39}
+\definecolor{nightsoft}{RGB}{31,41,62}
+\definecolor{amber}{RGB}{251,176,59}
+\definecolor{mist}{RGB}{226,232,240}
+\setbeamercolor{background canvas}{bg=night}
+\setbeamercolor{normal text}{fg=mist,bg=night}
+\setbeamercolor{structure}{fg=amber}
+\setbeamercolor{title}{fg=white}
+\setbeamercolor{subtitle}{fg=amber}
+\setbeamercolor{frametitle}{fg=amber}
+\setbeamercolor{alerted text}{fg=amber}
+\setbeamercolor{block title}{bg=amber,fg=night}
+\setbeamercolor{block body}{bg=nightsoft,fg=mist}
+\setbeamercolor{block title example}{bg=teal!70!white,fg=night}
+\setbeamercolor{block body example}{bg=nightsoft,fg=mist}
+\setbeamercolor{block title alerted}{bg=red!65!white,fg=night}
+\setbeamercolor{block body alerted}{bg=nightsoft,fg=mist}
+\setbeamercolor{section in toc}{fg=mist}
+\setbeamerfont{title}{series=\bfseries,size=\LARGE}
+\setbeamerfont{frametitle}{series=\bfseries}
+\setbeamertemplate{blocks}[rounded]
+\setbeamertemplate{itemize items}[circle]
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}{\hfill{\usebeamercolor[fg]{structure}\footnotesize\insertframenumber\,/\,\inserttotalframenumber}\hspace{1.4em}\vspace{0.9em}}
+\setbeameroption{show notes on second screen=right}
+
+\title{Your Presentation Title}
+\subtitle{A short subtitle}
+\author{Your Name}
+\institute{Your Institution}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+  \note{Welcome everyone. Say who you are and what this talk covers.}
+\end{frame}
+
+\begin{frame}{Outline}
+  \tableofcontents
+  \note{Give the plan in one sentence.}
+\end{frame}
+
+\section{Introduction}
+\begin{frame}{Key Ideas}
+  \begin{itemize}
+    \item<1-> Your first point
+    \item<2-> Your second point, shown on the next step
+    \item<3-> Your third point
+  \end{itemize}
+  \vspace{0.6em}
+  \begin{block}<3->{Takeaway}
+    One sentence the audience should remember.
+  \end{block}
+  \note{Each point appears on its own step. Pause after the takeaway.}
+\end{frame}
+
+\section{Details}
+\begin{frame}{Two Columns}
+  \begin{columns}[T]
+    \begin{column}{0.47\textwidth}
+      \begin{exampleblock}{Example}
+        A short example, a result or a figure.
+      \end{exampleblock}
+    \end{column}
+    \begin{column}{0.47\textwidth}
+      \begin{alertblock}{Watch out}
+        A caveat or a common mistake.
+      \end{alertblock}
+    \end{column}
+  \end{columns}
+  \note{Compare the two sides, left to right.}
+\end{frame}
+
+\begin{frame}{An Equation}
+  \begin{equation*}
+    f(x) = \sum_{k=0}^{n} a_k\, x^k
+  \end{equation*}
+  Explain what each symbol means, and why it matters here.
+  \note{Read the equation aloud once, slowly.}
+\end{frame}
+
+\section{Conclusion}
+\begin{frame}{Summary}
+  \begin{enumerate}
+    \item Your first conclusion
+    \item Your second conclusion
+  \end{enumerate}
+  \vfill
+  \begin{center}
+    {\Large Thank you. Questions?}
+  \end{center}
+  \note{Thank the audience and invite questions.}
+\end{frame}
+
+\end{document}

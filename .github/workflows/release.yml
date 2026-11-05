@@ -1,0 +1,228 @@
+# Builds TeXora on real Mac, Linux and Windows machines, checks every package and installer by
+# running it, and publishes them all on the GitHub Releases page.
+#
+# To release: set `version` in Cargo.toml, commit, then push a matching tag, for example
+#   git tag v1.0.0 && git push origin v1.0.0
+# Running it from the Actions tab ("Run workflow") builds and checks everything without publishing;
+# the files are then kept as downloadable artifacts of that run.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  mac:
+    name: macOS (Apple and Intel)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Rosetta, to run the Intel package
+        run: softwareupdate --install-rosetta --agree-to-license
+      - run: cargo test --locked
+      - name: Build and run the Apple package
+        run: sh scripts/build-mac.sh aarch64
+      - name: Build and run the Intel package
+        run: sh scripts/build-mac.sh x86_64
+      - name: Disk images (installers)
+        run: |
+          sh scripts/make-dmg.sh arm64
+          sh scripts/make-dmg.sh x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: |
+            dist/*/*.zip
+            dist/*/*.dmg
+            dist/*/*.validation.txt
+          if-no-files-found: error
+
+  linux:
+    name: Linux (${{ matrix.kind }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: linux-x64
+            runner: ubuntu-22.04
+          - kind: linux-arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build tools and a virtual screen for the window test
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxcb1-dev xvfb xauth libgl1-mesa-dri libegl1 libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 file binutils
+          pip3 install --user ziglang cargo-zigbuild
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: cargo test --locked
+      - name: Build the package (for glibc 2.31 and newer, as on Ubuntu 20.04)
+        run: sh scripts/build-cross.sh ${{ matrix.kind }}
+      - name: Run the package, away from the build folder
+        run: |
+          V=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          P="TeXora-$V-${{ matrix.kind }}"
+          RUN=$(mktemp -d)
+          tar -xzf "dist/$V/$P.tar.gz" -C "$RUN"
+          "$RUN/$P/TeXora" --version
+          "$RUN/$P/TeXora" --self-test | tee -a "dist/$V/$P.validation.txt"
+          TEXORA_CONFIG="$RUN/settings.json" xvfb-run -a -s "-screen 0 1600x1000x24" "$RUN/$P/TeXora" --view presenter --screenshot "$RUN/window.png"
+          test -s "$RUN/window.png"
+          echo "RESULT PASS window (run on ${{ matrix.runner }} under a virtual screen)" >> "dist/$V/$P.validation.txt"
+      - name: Debian and Ubuntu installer (.deb), installed and run
+        run: |
+          V=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          python3 scripts/make-deb.py ${{ matrix.kind }}
+          DEB=$(ls dist/$V/texora_*.deb)
+          dpkg-deb --info "$DEB"
+          sudo apt-get install -y "./$DEB"
+          texora --self-test
+          test -f /usr/share/applications/texora.desktop
+          sudo apt-get remove -y texora
+          echo "Installer: $(basename "$DEB") installed, run and removed on ${{ matrix.runner }}" >> "dist/$V/TeXora-$V-${{ matrix.kind }}.validation.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.kind }}
+          path: |
+            dist/*/*.tar.gz
+            dist/*/*.deb
+            dist/*/*.validation.txt
+          if-no-files-found: error
+
+  windows:
+    name: Windows (x64)
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - name: Package
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+          $p = "TeXora-$v-windows-x64"
+          New-Item -ItemType Directory -Force "stage/$p", "dist/$v" | Out-Null
+          Copy-Item target/release/TeXora.exe, target/release/pdfium.dll, README.md, CREDITS.md, LICENSE "stage/$p/"
+          Compress-Archive -Path "stage/$p" -DestinationPath "dist/$v/$p.zip"
+          "PKG=$p" | Out-File -Append $env:GITHUB_ENV
+          "VER=$v" | Out-File -Append $env:GITHUB_ENV
+      - name: Run the zip package, away from the build folder
+        run: |
+          $run = Join-Path $env:RUNNER_TEMP check
+          Expand-Archive "dist/$env:VER/$env:PKG.zip" -DestinationPath $run
+          $report = Join-Path $env:RUNNER_TEMP report.txt
+          $proc = Start-Process -FilePath (Join-Path $run "$env:PKG/TeXora.exe") -ArgumentList "--self-test=$report" -Wait -PassThru
+          $text = Get-Content $report -Raw
+          $text
+          if ($proc.ExitCode -ne 0 -or $text -notmatch 'RESULT PASS') { exit 1 }
+          $log = "dist/$env:VER/$env:PKG.validation.txt"
+          "Validated by: running the package on windows-2022. The self-test does not open a window." | Out-File $log
+          Add-Content $log $text
+      - name: Installer (Inno Setup)
+        run: |
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VER" "/DSourceDir=$PWD\stage\$env:PKG" "/DOutputDir=$PWD\dist\$env:VER" installer\texora.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Install, run and uninstall
+        run: |
+          $setup = "dist/$env:VER/$env:PKG-setup.exe"
+          $dir = Join-Path $env:RUNNER_TEMP "TeXora"
+          Start-Process -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/NORESTART", "/DIR=`"$dir`"" -Wait
+          $report = Join-Path $env:RUNNER_TEMP installed.txt
+          $proc = Start-Process -FilePath (Join-Path $dir "TeXora.exe") -ArgumentList "--self-test=$report" -Wait -PassThru
+          $text = Get-Content $report -Raw
+          if ($proc.ExitCode -ne 0 -or $text -notmatch 'RESULT PASS') { exit 1 }
+          Start-Process -FilePath (Join-Path $dir "unins000.exe") -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          Add-Content "dist/$env:VER/$env:PKG.validation.txt" "Installer: $env:PKG-setup.exe installed, run and uninstalled"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*/*.zip
+            dist/*/*-setup.exe
+            dist/*/*.validation.txt
+          if-no-files-found: error
+
+  publish:
+    name: Publish on GitHub Releases
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [mac, linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag must match the version in Cargo.toml
+        run: |
+          V=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "v$V" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match version $V in Cargo.toml" >&2
+            exit 1
+          fi
+          echo "VER=$V" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Gather the downloads
+        run: |
+          mkdir upload
+          find artifacts -type f \( -name 'TeXora-*.zip' -o -name 'TeXora-*.tar.gz' -o -name '*.dmg' -o -name '*.deb' -o -name '*-setup.exe' \) -exec cp {} upload/ \;
+          find artifacts -type f -name '*.validation.txt' | sort | while read -r f; do
+            printf '===== %s\n' "$(basename "$f" .validation.txt)"; cat "$f"; echo
+          done > upload/VALIDATION.txt
+          (cd upload && sha256sum $(ls | grep -v -e '^VALIDATION.txt$') > SHA256SUMS.txt)
+          ls -l upload
+          for need in mac-arm64.dmg mac-x64.dmg mac-arm64.zip mac-x64.zip windows-x64-setup.exe windows-x64.zip linux-x64.tar.gz linux-arm64.tar.gz; do
+            ls upload | grep -q -- "$need" || { echo "Missing $need" >&2; exit 1; }
+          done
+          ls upload | grep -q '_amd64.deb' && ls upload | grep -q '_arm64.deb'
+      - name: Release notes
+        run: |
+          V=$VER
+          cat > notes.md <<EOF
+          ## Download TeXora $V
+
+          | System | Installer | Portable |
+          |---|---|---|
+          | macOS, Apple chips (M1 and later) | [TeXora-$V-mac-arm64.dmg](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/TeXora-$V-mac-arm64.dmg) | [zip](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/TeXora-$V-mac-arm64.zip) |
+          | macOS, Intel | [TeXora-$V-mac-x64.dmg](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/TeXora-$V-mac-x64.dmg) | [zip](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/TeXora-$V-mac-x64.zip) |
+          | Windows 10 and 11 (x64) | [TeXora-$V-windows-x64-setup.exe](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/TeXora-$V-windows-x64-setup.exe) | [zip](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/TeXora-$V-windows-x64.zip) |
+          | Debian, Ubuntu (x64) | [texora_${V}_amd64.deb](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/texora_${V}_amd64.deb) | [tar.gz](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/TeXora-$V-linux-x64.tar.gz) |
+          | Debian, Ubuntu (arm64) | [texora_${V}_arm64.deb](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/texora_${V}_arm64.deb) | [tar.gz](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/TeXora-$V-linux-arm64.tar.gz) |
+
+          On macOS, open the disk image and drag TeXora to Applications. The first time, right-click it and
+          choose Open, because it is not signed by a paid Apple certificate. Windows may also warn about an
+          unknown publisher. To compile .tex files, install a TeX distribution (MacTeX, MiKTeX or TeX Live).
+
+          Every package was built and run on a real machine before this release; see VALIDATION.txt.
+          Checksums are in SHA256SUMS.txt.
+          EOF
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" upload/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" upload/* --title "TeXora $VER" --notes-file notes.md
+          fi

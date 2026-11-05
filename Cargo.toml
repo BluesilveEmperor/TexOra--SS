@@ -1,0 +1,39 @@
+[package]
+name = "texora"
+version = "1.0.0"
+edition = "2021"
+description = "TeXora: a LaTeX-native presenter for Beamer and PDF slides"
+license = "PolyForm-Noncommercial-1.0.0"
+build = "build.rs"
+
+# macOS names the app's About, Hide and Quit items after this file, so it carries the real name.
+[[bin]]
+name = "TeXora"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "wayland", "x11", "clipboard", "links"] }
+egui = "0.37"
+pdfium-render = "0.9.5"
+image = { version = "0.25", default-features = false, features = ["png"] }
+rfd = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "3", features = ["json"] }
+display-info = "0.5"
+dirs = "7"
+
+[build-dependencies]
+embed-resource = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

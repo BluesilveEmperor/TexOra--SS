@@ -1,0 +1,100 @@
+%% TeXora template: Minimal White. Clean white slides, dark text and a single blue accent.
+%% Change the colours on the \definecolor lines below; everything else follows them.
+% !TEX program = pdflatex
+\documentclass[aspectratio=169]{beamer}
+\usetheme{default}
+\usepackage{amsmath}
+\definecolor{ink}{RGB}{31,41,55}
+\definecolor{accent}{RGB}{37,99,235}
+\definecolor{soft}{RGB}{241,245,249}
+\setbeamercolor{normal text}{fg=ink}
+\setbeamercolor{structure}{fg=accent}
+\setbeamercolor{title}{fg=ink}
+\setbeamercolor{subtitle}{fg=accent}
+\setbeamercolor{frametitle}{fg=ink}
+\setbeamercolor{block title}{bg=soft,fg=accent}
+\setbeamercolor{block body}{bg=soft,fg=ink}
+\setbeamercolor{block title example}{bg=soft,fg=green!45!black}
+\setbeamercolor{block body example}{bg=soft,fg=ink}
+\setbeamercolor{block title alerted}{bg=soft,fg=red!70!black}
+\setbeamercolor{block body alerted}{bg=soft,fg=ink}
+\setbeamerfont{title}{series=\bfseries,size=\LARGE}
+\setbeamerfont{frametitle}{series=\bfseries,size=\Large}
+\setbeamertemplate{frametitle}{\vspace{0.7em}{\usebeamerfont{frametitle}\usebeamercolor[fg]{frametitle}\insertframetitle}\par\vspace{0.25em}{\color{accent}\rule{3em}{2pt}}\vspace{0.2em}}
+\setbeamertemplate{blocks}[rounded]
+\setbeamertemplate{itemize items}[circle]
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}{\hspace{1.4em}{\color{ink!45}\footnotesize\insertshorttitle}\hfill{\color{ink!45}\footnotesize\insertframenumber}\hspace{1.4em}\vspace{0.9em}}
+\setbeameroption{show notes on second screen=right}
+
+\title{Your Presentation Title}
+\subtitle{A short subtitle}
+\author{Your Name}
+\institute{Your Institution}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+  \note{Welcome everyone. Say who you are and what this talk covers.}
+\end{frame}
+
+\begin{frame}{Outline}
+  \tableofcontents
+  \note{Give the plan in one sentence.}
+\end{frame}
+
+\section{Introduction}
+\begin{frame}{Key Ideas}
+  \begin{itemize}
+    \item<1-> Your first point
+    \item<2-> Your second point, shown on the next step
+    \item<3-> Your third point
+  \end{itemize}
+  \vspace{0.6em}
+  \begin{block}<3->{Takeaway}
+    One sentence the audience should remember.
+  \end{block}
+  \note{Each point appears on its own step. Pause after the takeaway.}
+\end{frame}
+
+\section{Details}
+\begin{frame}{Two Columns}
+  \begin{columns}[T]
+    \begin{column}{0.47\textwidth}
+      \begin{exampleblock}{Example}
+        A short example, a result or a figure.
+      \end{exampleblock}
+    \end{column}
+    \begin{column}{0.47\textwidth}
+      \begin{alertblock}{Watch out}
+        A caveat or a common mistake.
+      \end{alertblock}
+    \end{column}
+  \end{columns}
+  \note{Compare the two sides, left to right.}
+\end{frame}
+
+\begin{frame}{An Equation}
+  \begin{equation*}
+    f(x) = \sum_{k=0}^{n} a_k\, x^k
+  \end{equation*}
+  Explain what each symbol means, and why it matters here.
+  \note{Read the equation aloud once, slowly.}
+\end{frame}
+
+\section{Conclusion}
+\begin{frame}{Summary}
+  \begin{enumerate}
+    \item Your first conclusion
+    \item Your second conclusion
+  \end{enumerate}
+  \vfill
+  \begin{center}
+    {\Large Thank you. Questions?}
+  \end{center}
+  \note{Thank the audience and invite questions.}
+\end{frame}
+
+\end{document}

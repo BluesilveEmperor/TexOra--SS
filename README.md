@@ -144,32 +144,6 @@ cargo build --release
 cargo test
 ```
 
-## Releases
-
-Releases are built by GitHub Actions, on real macOS, Linux and Windows machines:
-
-- `.github/workflows/ci.yml` builds and tests on all three systems for every change and pull request.
-- `.github/workflows/release.yml` runs when a version tag reaches GitHub. It builds the five packages
-  and the installers (`.dmg` for both kinds of Mac, a setup program for Windows, `.deb` for Linux x64 and
-  arm64), runs every one of them (the Linux ones also with a window on a virtual screen, and each
-  installer is installed, run and removed), and only then publishes them all on the Releases page, with
-  checksums and a download table.
-
-To make a release:
-
-1. Set `version` in `Cargo.toml`, for example `1.0.1`, and commit.
-2. Create the matching tag, `v1.0.1`, and send it to GitHub along with the commit.
-3. Watch it under **Actions**. The release appears on the Releases page when every job has passed. If
-   the tag does not match `Cargo.toml`, nothing is published.
-
-**Run workflow** on the Release workflow (Actions tab) builds and tests everything without publishing,
-and keeps the files as downloadable artifacts of that run. The Linux arm64 build uses GitHub's free
-arm64 runners, which need the repository to be public.
-
-On a Mac, `sh scripts/release.sh` builds the same packages, the Mac disk images and the `.deb` files
-locally (through Zig and cargo-zigbuild), and runs both Mac packages. The Windows installer is made only
-by the workflow, since it needs Windows.
-
 ## Project layout
 
 | Path | What it holds |

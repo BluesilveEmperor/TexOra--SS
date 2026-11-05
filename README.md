@@ -187,7 +187,7 @@ When a new version is published here, TeXora shows a notice in the lower right c
 **See what's new**, **Later** and **Skip this version**, and a dot on the **?** button. The update box
 offers the package for your computer and the release page; install it over your copy and your settings
 stay. **? > Check for updates** asks at any time. Turn the automatic look off in **Settings > Updates**.
-TeXora 1.0.0 shows the dot on **?** only. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
+TeXora 1.0.0 shows the dot on **?** only.
 
 ## Licence
 

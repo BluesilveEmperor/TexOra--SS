@@ -41,6 +41,8 @@ pub enum View {
     /// Slide and notes side by side in one window.
     Split,
     Overview,
+    /// The LaTeX studio: source editor, slide preview and compile messages.
+    Studio,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -50,6 +52,14 @@ pub enum LeftTab {
     Analytics,
     Settings,
     Docs,
+}
+
+/// The tabs of the studio's message panel.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LogTab {
+    Problems,
+    Packages,
+    Log,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -83,6 +93,10 @@ pub struct Source {
     pub dirty: bool,
     pub last_edit: Instant,
     pub disk_mtime: Option<SystemTime>,
+    pub cursor_line: usize,
+    pub synced_line: usize,
+    pub line_changed: Instant,
+    pub goto_line: Option<usize>,
 }
 
 pub struct Args {
@@ -201,10 +215,15 @@ pub struct App {
     pub reqs: Vec<latex::Requirement>,
     pub req_warning: Option<String>,
     pub req_rx: Option<Receiver<(Vec<latex::Requirement>, Option<String>)>>,
+    pub log_tab: LogTab,
+    pub log_wrap: bool,
+    pub log_open: bool,
     pub compile_ok: Option<bool>,
     pub compile_note: String,
     pub open_after_compile: bool,
     pub sync_mark: Option<(usize, [f32; 2], Instant)>,
+    /// In the studio, show the slide for the line the cursor is on.
+    pub follow_cursor: bool,
     pub tex_checked: Instant,
 
     pub search_q: String,
@@ -334,10 +353,14 @@ impl App {
             reqs: vec![],
             req_warning: None,
             req_rx: None,
+            log_tab: LogTab::Problems,
+            log_wrap: true,
+            log_open: true,
             compile_ok: None,
             compile_note: String::new(),
             open_after_compile: false,
             sync_mark: None,
+            follow_cursor: true,
             tex_checked: Instant::now(),
             search_q: String::new(),
             search_sent: String::new(),
@@ -376,6 +399,7 @@ impl App {
             let opened = app.view != View::Start;
             match args.view.as_deref().filter(|_| opened) {
                 Some("overview") => app.view = View::Overview,
+                Some("studio") => app.view = View::Studio,
                 Some("split") => app.view = View::Split,
                 Some("swap") => app.swap = true,
                 _ => {}
@@ -461,6 +485,10 @@ impl App {
             dirty: false,
             last_edit: Instant::now(),
             disk_mtime: latex::mtime(path),
+            cursor_line: 1,
+            synced_line: 0,
+            line_changed: Instant::now(),
+            goto_line: None,
         })
     }
 
@@ -478,7 +506,9 @@ impl App {
 
     fn on_opened(&mut self, doc: DocInfo) {
         self.loading = false;
-        let same = self.deck_path.as_deref() == Some(doc.path.as_path()) && self.doc.is_some();
+        // A rebuild may hand back the same file under another spelling of its path (/tmp or
+        // /private/tmp, a "./" in it). It is still the same presentation: its slide, notes and timer stay.
+        let same = self.deck_path.as_deref().is_some_and(|d| same_file(d, &doc.path)) && self.doc.is_some();
         if !same {
             self.save_note_draft();
             self.finish_session();
@@ -597,6 +627,24 @@ impl App {
     /// brings back the notes from the PDF or the LaTeX source.
     pub fn save_note_draft(&mut self) {
         let Some((f, text)) = self.note_draft.take() else { return };
+        // A presentation made from LaTeX keeps its notes in the source, as \note{...} in each frame, so
+        // the presenter and the LaTeX studio always show the same notes. The source is saved and rebuilt.
+        let new_src = self.src.as_ref().and_then(|s| notes::set_frame_note(&s.text, f, &notes::md_to_latex(&text)));
+        if let (Some(new), Some(s)) = (new_src, self.src.as_mut()) {
+            s.text = new;
+            s.dirty = true;
+            s.last_edit = Instant::now();
+            let file = s.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            if self.notes.remove(&f).is_some() {
+                self.save_notes();
+            }
+            self.save_source();
+            if !self.status.starts_with("Could not") {
+                self.status = format!("Notes for slide {} saved in {file}, in the slide's \\note.", f + 1);
+                self.start_compile();
+            }
+            return;
+        }
         if text.trim().is_empty() {
             self.notes.remove(&f);
         } else {
@@ -624,10 +672,29 @@ impl App {
                 Ok(_) => {
                     s.dirty = false;
                     s.disk_mtime = latex::mtime(&s.path);
-                    s.frames = notes::parse_tex_frames(&s.text);
+                    let before = std::mem::replace(&mut s.frames, notes::parse_tex_frames(&s.text));
+                    self.source_notes_changed(&before);
                 }
                 Err(e) => self.status = format!("Could not save: {e}"),
             }
+        }
+    }
+
+    /// After the source changed (in the studio or another editor): a slide whose `\note` changed shows
+    /// it, even where an older copy of its note sits in the `.note.md` file. That copy goes.
+    fn source_notes_changed(&mut self, before: &[notes::TexFrame]) {
+        let Some(s) = &self.src else { return };
+        // When frames were added or removed, numbers no longer match; nothing is matched up then.
+        if s.frames.len() != before.len() {
+            return;
+        }
+        let changed: Vec<usize> = (0..before.len()).filter(|&i| before[i].note != s.frames[i].note).collect();
+        let mut gone = false;
+        for i in changed {
+            gone |= self.notes.remove(&i).is_some();
+        }
+        if gone {
+            self.save_notes();
         }
     }
 
@@ -652,6 +719,10 @@ impl App {
         self.problems = r.problems;
         self.full_log = r.log;
         self.compile_ok = Some(r.ok);
+        if !self.problems.is_empty() {
+            self.log_tab = LogTab::Problems;
+            self.log_open = true;
+        }
         if r.ok {
             let warns = self.problems.len();
             self.compile_note = format!(
@@ -669,6 +740,7 @@ impl App {
             self.status = self.compile_note.clone();
             if self.open_after_compile {
                 self.open_after_compile = false;
+                self.view = View::Studio;
                 // An older PDF is still better than nothing to present.
                 if r.pdf.exists() {
                     self.load_pdf(&r.pdf);
@@ -772,6 +844,10 @@ impl App {
                 self.reqs = reqs;
                 self.req_warning = warn;
                 self.req_rx = None;
+                if self.reqs.iter().any(|r| !r.found) || self.req_warning.is_some() {
+                    self.log_tab = LogTab::Packages;
+                    self.log_open = true;
+                }
             }
         }
 
@@ -825,16 +901,20 @@ impl App {
     fn watch_files(&mut self) {
         let auto = self.st.auto_compile;
         let mut rebuild = false;
+        let mut changed_frames = None;
         if let Some(s) = &mut self.src {
             let m = latex::mtime(&s.path);
             if m.is_some() && m != s.disk_mtime && !s.dirty {
                 s.disk_mtime = m;
                 if let Some(t) = notes::read_text(&s.path) {
-                    s.frames = notes::parse_tex_frames(&t);
+                    changed_frames = Some(std::mem::replace(&mut s.frames, notes::parse_tex_frames(&t)));
                     s.text = t;
                 }
                 rebuild = auto;
             }
+        }
+        if let Some(before) = changed_frames {
+            self.source_notes_changed(&before);
         }
         if rebuild {
             self.start_compile();
@@ -923,6 +1003,7 @@ impl App {
         if !self.timer_on && !self.timer_touched && self.frozen.is_none() && presenting {
             self.start_timer();
         }
+        self.sync_editor_to_slide();
     }
 
     /// A deliberate jump, remembered so Back can return from it.
@@ -951,6 +1032,23 @@ impl App {
             self.side.sessions.reverse();
         }
         self.session = Session { started_unix: now_unix(), ..Default::default() };
+    }
+
+    fn sync_editor_to_slide(&mut self) {
+        // Keep the source in view while moving through slides in the studio.
+        if self.view != View::Studio {
+            return;
+        }
+        let f = self.frame();
+        if let Some(s) = &mut self.src {
+            if let Some(tf) = s.frames.get(f) {
+                let line = tf.line;
+                if !(tf.line..=tf.end_line).contains(&s.cursor_line) {
+                    s.goto_line = Some(line);
+                    s.synced_line = line;
+                }
+            }
+        }
     }
 
     pub fn follow_link(&mut self, t: &LinkTarget) {
@@ -982,6 +1080,71 @@ impl App {
     }
 
     // ---------- source sync ----------
+
+    pub fn sync_from_cursor(&mut self) {
+        let (Some(s), Some(pdf)) = (&mut self.src, &self.pdf_path) else { return };
+        let line = s.cursor_line;
+        s.synced_line = line;
+        let path = s.path.clone();
+        let frame_at = s.frames.iter().position(|f| (f.line..=f.end_line).contains(&line));
+        let frame_end = frame_at.map(|i| s.frames[i].end_line);
+        let current_page = self.deck.slides.get(self.cur).map(|x| x.page);
+        let deck = &self.deck;
+        let frame_of = |p: usize| deck.slides.iter().find(|x| x.page == p).map(|x| x.frame);
+        let on_line = latex::forward_sync(&path, line, pdf);
+        // Inside a frame, its \end{frame} line says which slide it is: SyncTeX links the frame's
+        // opening lines to the slide before. The cursor's own line then picks the overlay step.
+        let chosen = match frame_end {
+            Some(end) => {
+                let whole = latex::forward_sync(&path, end, pdf);
+                pick_sync_in_frame(&on_line, &whole, frame_of, current_page).cloned()
+            }
+            None => pick_sync(&on_line, frame_of, current_page).cloned(),
+        };
+        if let Some(t) = chosen {
+            if let Some(i) = self.deck.slides.iter().position(|x| x.page == t.page) {
+                self.cur = i;
+                let (w, h) = self.page_points(t.page);
+                self.sync_mark = Some((i, [t.x / w, t.y / h], Instant::now()));
+                return;
+            }
+        }
+        if let Some(fr) = frame_at.and_then(|f| self.deck.frames.get(f)) {
+            self.cur = fr.first;
+        }
+    }
+
+    /// Slide width and height in PDF points.
+    fn page_points(&self, page: usize) -> (f32, f32) {
+        let Some(p) = self.doc.as_ref().and_then(|d| d.pages.get(page)) else { return (1.0, 1.0) };
+        let wide = self.deck.slides.first().map(|s| s.region != Region::Full).unwrap_or(false);
+        (if wide { p.width / 2.0 } else { p.width }, p.height)
+    }
+
+    /// `pos` is a position on the slide from 0 to 1.
+    pub fn sync_from_slide(&mut self, idx: usize, pos: [f32; 2]) {
+        let Some(sl) = self.deck.slides.get(idx) else { return };
+        let (page, region) = (sl.page, sl.region);
+        let (w, h) = self.page_points(page);
+        let x = pos[0] * w + if region == Region::Right { w } else { 0.0 };
+        let Some(pdf) = self.pdf_path.clone() else { return };
+        match latex::inverse_sync(page, x, pos[1] * h, &pdf) {
+            Some((file, line)) => {
+                let same = self.src.as_ref().map(|s| s.path == file).unwrap_or(false);
+                if !same && file.exists() {
+                    self.src = self.read_source(&file);
+                }
+                self.view = View::Studio;
+                if let Some(s) = &mut self.src {
+                    s.goto_line = Some(line);
+                    s.cursor_line = line;
+                    s.synced_line = line;
+                }
+            }
+            None => self.status = "No source position here. Compile from TeXora so it can link slides to source.".to_string(),
+        }
+    }
+
 
     // ---------- ink ----------
 
@@ -1255,10 +1418,18 @@ impl App {
             }
             EditNotes => self.begin_note_edit(),
             CheckPackages => {
-                // The list lives in Settings, opened at that section.
+                // The list opens in the studio's message panel, beside the source.
                 self.check_packages();
-                self.left = Some(LeftTab::Settings);
-                self.show_packages = true;
+                self.log_tab = LogTab::Packages;
+                self.log_open = true;
+                if self.view != View::Studio {
+                    self.view = View::Studio;
+                    self.sync_editor_to_slide();
+                }
+            }
+            Studio => {
+                self.view = if self.view == View::Studio { View::Presenter } else { View::Studio };
+                self.sync_editor_to_slide();
             }
             SwapNotes => self.swap = !self.swap,
             Outline => self.toggle_left(LeftTab::Bookmarks),
@@ -1278,6 +1449,12 @@ impl App {
             ClearInk => self.clear_ink(),
             MarkQuestion => self.toggle_question(),
             Open => self.open_dialog("Slides", &["pdf", "tex"]),
+            Save => {
+                self.save_source();
+                if self.st.auto_compile {
+                    self.start_compile();
+                }
+            }
             Compile => {
                 self.save_source();
                 self.start_compile();
@@ -1429,7 +1606,7 @@ impl App {
 
     /// Feeds one scripted input step into the app, exactly as if it came from the keyboard or mouse.
     pub fn script_input(&mut self, raw: &mut egui::RawInput) {
-        let waiting = self.doc.is_none() && !matches!(self.view, View::Start);
+        let waiting = self.doc.is_none() && !matches!(self.view, View::Start | View::Studio);
         if waiting || self.script.is_empty() {
             return;
         }
@@ -1494,7 +1671,7 @@ impl App {
     pub fn script_report(&self) -> String {
         let ink: usize = self.side.ink.values().map(Vec::len).sum();
         format!(
-            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} packages={} recent={} toast={} skipped={:?} draft={:?}",
+            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} packages={} recent={} toast={} skipped={:?} draft={:?} line={} log_open={} wrap={} follow={}",
             self.cur + 1,
             self.frame() + 1,
             self.deck.slides.get(self.cur).map(|s| s.step + 1).unwrap_or(0),
@@ -1536,6 +1713,10 @@ impl App {
             self.update_toast,
             self.st.skipped_update,
             self.note_draft,
+            self.src.as_ref().map(|s| s.cursor_line).unwrap_or(0),
+            self.log_open,
+            self.log_wrap,
+            self.follow_cursor,
         )
     }
 
@@ -1629,6 +1810,120 @@ mod tests {
         let z = z.unwrap();
         assert!(z[0] >= 0.0 && z[1] >= 0.0 && z[2] <= 1.0001 && z[3] <= 1.0001, "{z:?}");
         assert!((1.0 / (z[2] - z[0]) - MAX_ZOOM).abs() < 0.01);
+    }
+}
+
+/// Chooses the place a source line belongs to among everything SyncTeX links it to. SyncTeX lists a
+/// few boxes on the page before a frame (where TeX stood when the frame began) ahead of the frame's own,
+/// so the first answer is often the previous slide. The slide whose pages hold most of the line's
+/// boxes is the right one; within it, the slide on screen stays if it shows the line, and otherwise
+/// the first overlay step that does.
+pub fn pick_sync(found: &[latex::SyncTarget], frame_of: impl Fn(usize) -> Option<usize>, current_page: Option<usize>) -> Option<&latex::SyncTarget> {
+    let mut counts: HashMap<usize, usize> = HashMap::new();
+    for t in found {
+        if let Some(f) = frame_of(t.page) {
+            *counts.entry(f).or_default() += 1;
+        }
+    }
+    let current_frame = current_page.and_then(&frame_of);
+    let best = counts.iter().max_by(|a, b| a.1.cmp(b.1).then((Some(*a.0) == current_frame).cmp(&(Some(*b.0) == current_frame))).then(b.0.cmp(a.0)))?.0;
+    let mine: Vec<&latex::SyncTarget> = found.iter().filter(|t| frame_of(t.page) == Some(*best)).collect();
+    mine.iter().find(|t| Some(t.page) == current_page).or_else(|| mine.iter().min_by_key(|t| t.page)).copied()
+}
+
+/// For a line inside a frame: `whole` is what SyncTeX gives for the frame's last line, which holds the
+/// frame's own pages; `on_line` is what it gives for the line itself. The slide comes from `whole`; the
+/// step is the slide on screen if it shows the line, else the first step that does, else the first step.
+pub fn pick_sync_in_frame<'a>(on_line: &'a [latex::SyncTarget], whole: &'a [latex::SyncTarget], frame_of: impl Fn(usize) -> Option<usize> + Copy, current_page: Option<usize>) -> Option<&'a latex::SyncTarget> {
+    let target = frame_of(pick_sync(whole, frame_of, current_page)?.page)?;
+    let in_target = |t: &&latex::SyncTarget| frame_of(t.page) == Some(target);
+    let mine: Vec<&latex::SyncTarget> = on_line.iter().filter(in_target).collect();
+    if !mine.is_empty() {
+        return mine.iter().find(|t| Some(t.page) == current_page).or_else(|| mine.iter().min_by_key(|t| t.page)).copied();
+    }
+    let all: Vec<&latex::SyncTarget> = whole.iter().filter(in_target).collect();
+    all.iter().find(|t| Some(t.page) == current_page).or_else(|| all.iter().min_by_key(|t| t.page)).copied()
+}
+
+#[cfg(test)]
+mod sync_pick_tests {
+    use super::*;
+    use crate::latex::SyncTarget;
+
+    fn at(page: usize) -> SyncTarget {
+        SyncTarget { page, x: 1.0, y: 1.0 }
+    }
+
+    // Pages 0-1 are slide 0, page 2 is slide 1 (one step), pages 3-5 are slide 2 (three steps).
+    fn frame_of(p: usize) -> Option<usize> {
+        match p {
+            0 | 1 => Some(0),
+            2 => Some(1),
+            3..=5 => Some(2),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_page_before_a_frame_does_not_win() {
+        // What SyncTeX says for a line inside slide 2: a few boxes on page 2 first, then many on 3-5.
+        let mut found: Vec<SyncTarget> = (0..19).map(|_| at(2)).collect();
+        found.extend((0..200).map(|_| at(4)).chain((0..200).map(|_| at(5))).chain((0..200).map(|_| at(3))));
+        assert_eq!(pick_sync(&found, frame_of, Some(0)).map(|t| t.page), Some(3), "first step of the right slide");
+        assert_eq!(pick_sync(&found, frame_of, Some(5)).map(|t| t.page), Some(5), "stays on the step on screen");
+    }
+
+    #[test]
+    fn a_line_that_appears_later_goes_to_its_step() {
+        let found: Vec<SyncTarget> = vec![at(2), at(2), at(5), at(5), at(5), at(4), at(4), at(4)];
+        assert_eq!(pick_sync(&found, frame_of, None).map(|t| t.page), Some(4));
+    }
+
+    #[test]
+    fn a_frames_opening_line_shows_that_frame_not_the_one_before() {
+        // Real SyncTeX answers for the TeXPress sample: \begin{frame}{Why Graph Search…} (line 50)
+        // gives only the previous slide's pages; its \end{frame} line gives its own.
+        let opening: Vec<SyncTarget> = (0..14).map(|_| at(0)).chain((0..206).map(|_| at(2))).collect();
+        let closing: Vec<SyncTarget> = (0..19).map(|_| at(2)).chain((0..246).map(|_| at(3))).chain((0..246).map(|_| at(4))).chain((0..238).map(|_| at(5))).collect();
+        let frame_of = |p: usize| match p {
+            0 => Some(0),
+            2 => Some(1),
+            3..=5 => Some(2),
+            _ => None,
+        };
+        assert_eq!(pick_sync_in_frame(&opening, &closing, frame_of, Some(0)).map(|t| t.page), Some(3), "first step of its own slide");
+        assert_eq!(pick_sync_in_frame(&opening, &closing, frame_of, Some(4)).map(|t| t.page), Some(4), "keeps the step on screen");
+        // A line revealed on the second step goes to that step.
+        let second: Vec<SyncTarget> = (0..19).map(|_| at(2)).chain((0..246).map(|_| at(4))).chain((0..238).map(|_| at(5))).collect();
+        assert_eq!(pick_sync_in_frame(&second, &closing, frame_of, Some(0)).map(|t| t.page), Some(4));
+    }
+
+    #[test]
+    fn nothing_found_means_no_choice() {
+        assert!(pick_sync(&[], frame_of, Some(0)).is_none());
+        assert!(pick_sync(&[at(9)], frame_of, None).is_none());
+    }
+}
+
+/// Whether two paths name the same file, however they are written.
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
+}
+
+#[cfg(test)]
+mod same_file_tests {
+    use super::*;
+
+    #[test]
+    fn one_file_under_two_spellings_is_one_file() {
+        let d = std::env::temp_dir().join(format!("txp-same-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join("Lecture.pdf");
+        std::fs::write(&f, "x").unwrap();
+        assert!(same_file(&f, &d.join(".").join("Lecture.pdf")));
+        assert!(same_file(&f, &f.canonicalize().unwrap()));
+        assert!(!same_file(&f, &d.join("Other.pdf")));
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
 

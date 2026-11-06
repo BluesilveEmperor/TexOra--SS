@@ -857,27 +857,7 @@ impl App {
         }
         if !self.compiling && !self.loading {
             // The .tex file did not compile: say why, since there is no editor here to show it in.
-            let mut child = ui.new_child(UiBuilder::new().max_rect(full.shrink(40.0)));
-            let mut again = false;
-            child.vertical_centered(|ui| {
-                ui.add_space(full.height() * 0.25);
-                ui.label(RichText::new("These slides could not be compiled").size(20.0).color(INK));
-                ui.add_space(4.0);
-                let note = if self.compile_note.is_empty() { "LaTeX stopped with an error." } else { self.compile_note.as_str() };
-                ui.label(RichText::new(note).size(14.5).color(MUTED));
-                for p in self.problems.iter().filter(|p| p.is_error).take(5) {
-                    let at = p.line.map(|l| format!("line {l}: ")).unwrap_or_default();
-                    ui.label(RichText::new(format!("{at}{}", p.message)).size(13.5).color(BAD));
-                }
-                ui.add_space(6.0);
-                ui.label(RichText::new("Fix the file in your LaTeX editor and save it: TeXora compiles it again by itself. Missing packages are listed in Settings > Required LaTeX packages.").size(13.0).color(MUTED));
-                ui.add_space(8.0);
-                again = ui.button("Compile again").clicked();
-            });
-            if again {
-                self.open_after_compile = true;
-                self.start_compile();
-            }
+            self.view = View::Studio;
             return;
         }
         let mut child = ui.new_child(UiBuilder::new().max_rect(full));

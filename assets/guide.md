@@ -57,19 +57,24 @@ Turn the mouse wheel over a slide, or pinch on a trackpad, to zoom around the po
 
 Notes come from the notes pages in your PDF, from `\note{}` in your LaTeX, or from a notes file in the same folder as the presentation, named after it: for `Lecture.pdf` it is `Lecture.note.md` (Settings > Speaker notes shows the exact file). Notes saved as `Lecture.notes.md` by earlier versions are read too. In that file, each `## Slide N` heading starts a slide's notes.
 
-To edit the current slide's notes, press the notes button beside the pointer, or **E**. Type, then press the tick or **Cmd/Ctrl+Enter** to save, or the cross or **Esc** to cancel. On a slide without notes, **Write notes** does the same. Your notes are saved in that file (for `Lecture.pdf`, `Lecture.note.md` beside it) and open with the presentation next time. Saving with no text brings back the notes from the PDF or source. Notes can be in any language; Arabic is typed and shown right to left. They are saved as UTF-8. The View menu chooses which notes are shown. Text notes support **bold**, *emphasis*, lists and headings. To make PDF notes pages, add this to your Beamer preamble:
+To edit the current slide's notes, press the notes button beside the pointer, or **E**. Type, then press the tick or **Cmd/Ctrl+Enter** to save, or the cross or **Esc** to cancel. On a slide without notes, **Write notes** does the same. For a PDF, your notes are saved in that file (for `Lecture.pdf`, `Lecture.note.md` beside it). For a `.tex` presentation they are saved in the source itself, as `\note{...}` in the slide, so the presenter and the LaTeX studio always show the same notes. Either way they open with the presentation next time. Saving with no text removes the slide's note. Notes can be in any language; Arabic is typed and shown right to left. They are saved as UTF-8. The View menu chooses which notes are shown. Text notes support **bold**, *emphasis*, lists and headings. To make PDF notes pages, add this to your Beamer preamble:
 
 ```
 \setbeameroption{show notes on second screen=right}
 ```
 
-## LaTeX files
+## LaTeX studio
 
-Open a `.tex` file and TeXora compiles it and shows the slides. Keep editing it in your own LaTeX editor: each time you save, the slides rebuild. TeXora picks pdfLaTeX, XeLaTeX or LuaLaTeX by itself, or you can choose one in Settings. If the file does not compile, TeXora shows the errors and their lines.
+Open a `.tex` file, then press **Cmd/Ctrl+E**, the studio button in the toolbar, or **View > LaTeX studio**. The source is on the left, the slide and its notes on the right, and the compile messages along the bottom.
 
-**Tools > Check required packages** opens Settings at **Required LaTeX packages**: every package, theme and program the file needs, marked **Installed** or **Needs download**, with how to get it.
+- Slides rebuild shortly after you stop typing. Turn this off with the **Live** box.
+- **Compile** (Cmd/Ctrl+B) builds now; **Save** (Cmd/Ctrl+S) saves the source.
+- Double-click a slide to find its source. Moving the cursor shows the matching slide (**Follow cursor**).
+- The panel at the bottom holds problems, packages and the full log. Drag its top edge to resize it.
+- **Check packages**, also in the Tools menu, lists anything your file needs that is missing, and how to get it. **Settings > Required LaTeX packages** shows the same list.
+- You can also keep editing in your own LaTeX editor: each time you save, the slides rebuild.
 
-TeXora needs TeX Live, MacTeX or MiKTeX installed to compile. PDF presentations need nothing else.
+TeXora needs TeX Live, MacTeX or MiKTeX installed to compile. It picks pdfLaTeX, XeLaTeX or LuaLaTeX by itself, or you can choose one. PDF presentations need nothing else.
 
 ## After the talk
 

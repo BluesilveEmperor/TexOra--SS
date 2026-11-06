@@ -83,7 +83,7 @@ pub fn checks(f: &Facts) -> Vec<Check> {
         name: "LaTeX",
         status: if engines.is_empty() { Status::Optional } else { Status::Ready },
         found: if engines.is_empty() { "Not found".to_string() } else { format!("Found: {}", engines.join(", ")) },
-        used_for: "Presenting .tex files: TeXora compiles them. PDF presentations do not need it.",
+        used_for: "Compiling .tex files in the LaTeX studio. PDF presentations do not need it.",
         how: engines.is_empty().then(|| tex_install_hint(f.os).to_string()),
     });
     out.push(Check {
@@ -92,6 +92,14 @@ pub fn checks(f: &Facts) -> Vec<Check> {
         found: "Your default browser".to_string(),
         used_for: "The website and update downloads",
         how: None,
+    });
+    let synctex = f.tex_tools.iter().any(|(n, ok)| *n == "synctex" && *ok);
+    out.push(Check {
+        name: "SyncTeX",
+        status: if synctex { Status::Ready } else { Status::Optional },
+        found: if synctex { "Found".to_string() } else { "Not found".to_string() },
+        used_for: "Jumping between a slide and its source in the studio",
+        how: (!synctex).then(|| "It comes with TeX Live, MacTeX and MiKTeX.".to_string()),
     });
     out
 }

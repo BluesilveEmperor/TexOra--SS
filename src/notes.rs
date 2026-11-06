@@ -209,18 +209,34 @@ pub fn latex_to_md(s: &str) -> String {
             }
         }
         if rest.starts_with("\\\\") {
+            // A line break; the source's own newline after it is the same break.
             out.push('\n');
+            i = skip_break(s, i + 2);
+            continue;
+        }
+        for (cmd, text) in [("\\textbackslash{}", "\\"), ("\\textasciitilde{}", "~"), ("\\textasciicircum{}", "^")] {
+            if rest.starts_with(cmd) {
+                out.push_str(text);
+                i += cmd.len();
+                continue 'scan;
+            }
+        }
+        if let Some(c) = rest.strip_prefix('\\').and_then(|r| r.chars().next()).filter(|c| "&%$#_{}".contains(*c)) {
+            out.push(c);
             i += 2;
             continue;
         }
         if rest.starts_with("\\item") {
+            trim_end_in_place(&mut out);
             out.push_str("\n- ");
-            i += 5;
+            i = skip_spaces(s, i + 5);
             continue;
         }
         if rest.starts_with("\\begin{") || rest.starts_with("\\end{") {
             if let Some(p) = rest.find('}') {
-                i += p + 1;
+                trim_end_in_place(&mut out);
+                out.push('\n');
+                i = skip_spaces(s, i + p + 1);
                 continue;
             }
         }
@@ -229,6 +245,213 @@ pub fn latex_to_md(s: &str) -> String {
         i += c.len_utf8();
     }
     out.lines().map(str::trim).collect::<Vec<_>>().join("\n").trim().to_string()
+}
+
+fn trim_end_in_place(s: &mut String) {
+    let n = s.trim_end().len();
+    s.truncate(n);
+}
+
+/// Past spaces, tabs and newlines.
+fn skip_spaces(s: &str, mut i: usize) -> usize {
+    while s.as_bytes().get(i).is_some_and(|b| b.is_ascii_whitespace()) {
+        i += 1;
+    }
+    i
+}
+
+/// Past spaces and tabs, and at most one newline.
+fn skip_break(s: &str, mut i: usize) -> usize {
+    while matches!(s.as_bytes().get(i), Some(b' ') | Some(b'\t')) {
+        i += 1;
+    }
+    if s.as_bytes().get(i) == Some(&b'\n') {
+        i += 1;
+    }
+    i
+}
+
+/// LaTeX's special signs, written so they print as themselves.
+fn escape_latex(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\textbackslash{}"),
+            '~' => out.push_str("\\textasciitilde{}"),
+            '^' => out.push_str("\\textasciicircum{}"),
+            '&' | '%' | '$' | '#' | '_' | '{' | '}' => {
+                out.push('\\');
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// One line of Markdown with **bold**, *emphasis* and `code`, as LaTeX.
+fn inline_md_to_latex(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while !rest.is_empty() {
+        let next = ["**", "`", "*"].iter().filter_map(|m| rest.find(m).map(|p| (p, *m))).min_by_key(|x| (x.0, std::cmp::Reverse(x.1.len())));
+        match next {
+            Some((p, m)) if rest[p + m.len()..].contains(m) => {
+                out.push_str(&escape_latex(&rest[..p]));
+                let after = &rest[p + m.len()..];
+                let end = after.find(m).unwrap();
+                let inner = &after[..end];
+                match m {
+                    "**" => out.push_str(&format!("\\textbf{{{}}}", inline_md_to_latex(inner))),
+                    "`" => out.push_str(&format!("\\texttt{{{}}}", escape_latex(inner))),
+                    _ => out.push_str(&format!("\\emph{{{}}}", inline_md_to_latex(inner))),
+                }
+                rest = &after[end + m.len()..];
+            }
+            _ => {
+                out.push_str(&escape_latex(rest));
+                rest = "";
+            }
+        }
+    }
+    out
+}
+
+/// Notes written in the presenter (Markdown) as the body of a LaTeX `\note{...}`: lines break with
+/// `\\`, `- ` lines become a list, and `latex_to_md` reads it back as the same text.
+pub fn md_to_latex(md: &str) -> String {
+    #[derive(PartialEq)]
+    enum K {
+        Text,
+        Blank,
+        Other,
+    }
+    let mut parts: Vec<(K, String)> = vec![];
+    let mut in_list = false;
+    for line in md.trim().lines() {
+        let t = line.trim();
+        let item = t.strip_prefix("- ").or_else(|| t.strip_prefix("* "));
+        if let Some(item) = item {
+            if !in_list {
+                parts.push((K::Other, "\\begin{itemize}".to_string()));
+                in_list = true;
+            }
+            parts.push((K::Other, format!("\\item {}", inline_md_to_latex(item.trim()))));
+            continue;
+        }
+        if in_list {
+            parts.push((K::Other, "\\end{itemize}".to_string()));
+            in_list = false;
+        }
+        if t.is_empty() {
+            parts.push((K::Blank, String::new()));
+        } else if t.starts_with('#') {
+            parts.push((K::Text, format!("\\textbf{{{}}}", inline_md_to_latex(t.trim_start_matches('#').trim()))));
+        } else {
+            parts.push((K::Text, inline_md_to_latex(t)));
+        }
+    }
+    if in_list {
+        parts.push((K::Other, "\\end{itemize}".to_string()));
+    }
+    let mut out = String::new();
+    for i in 0..parts.len() {
+        out.push_str(&parts[i].1);
+        // A line break between two lines of text; lists and blank lines break by themselves.
+        if parts[i].0 == K::Text && parts.get(i + 1).is_some_and(|n| n.0 == K::Text) {
+            out.push_str("\\\\");
+        }
+        if i + 1 < parts.len() {
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// Puts `note` (LaTeX) as the `\note{...}` of frame number `frame` (from 0) in the source, and returns
+/// the new source. An existing `\note` is replaced (more than one become one); a frame without one
+/// gets it just before its `\end{frame}`; an empty `note` removes the frame's notes. `None` when the
+/// frame is not there.
+pub fn set_frame_note(src: &str, frame: usize, note: &str) -> Option<String> {
+    let lines: Vec<&str> = src.split('\n').collect();
+    let clean: String = lines.iter().map(|l| strip_comment(l)).collect::<Vec<_>>().join("\n");
+    // Comments only ever end a line, so a position keeps its line and column in the original text.
+    let mut starts = vec![0usize];
+    for l in &lines {
+        starts.push(starts.last().unwrap() + l.len() + 1);
+    }
+    let clean_starts: Vec<usize> = {
+        let mut v = vec![0usize];
+        for l in clean.split('\n') {
+            v.push(v.last().unwrap() + l.len() + 1);
+        }
+        v
+    };
+    let to_orig = |p: usize| {
+        let line = clean_starts.partition_point(|s| *s <= p) - 1;
+        starts[line] + (p - clean_starts[line])
+    };
+    let (mut pos, mut n) = (0, 0);
+    let (after, end) = loop {
+        let start = pos + clean[pos..].find("\\begin{frame}")?;
+        let after = start + "\\begin{frame}".len();
+        let end = after + clean[after..].find("\\end{frame}")?;
+        if n == frame {
+            break (after, end);
+        }
+        n += 1;
+        pos = end;
+    };
+    // Every \note in the frame: (where the command starts, where its braces start, where they end).
+    let mut spans = vec![];
+    let mut np = after;
+    while let Some(q) = clean[np..end].find("\\note") {
+        let at = np + q;
+        let o = skip_opts(&clean, at + 5);
+        match braced(&clean, o) {
+            Some((_, e)) if e <= end => {
+                spans.push((at, o, e));
+                np = e;
+            }
+            _ => np = at + 5,
+        }
+    }
+    let end_o = to_orig(end);
+    let line_start = src[..end_o].rfind('\n').map(|p| p + 1).unwrap_or(0);
+    let before_end = &src[line_start..end_o];
+    let alone = before_end.trim().is_empty();
+    let indent = format!("{}  ", if alone { before_end } else { "" });
+    let body = note.lines().collect::<Vec<_>>().join(&format!("\n{indent}  "));
+    // Changes from the back, so earlier positions stay right.
+    let mut edits: Vec<(usize, usize, String)> = vec![];
+    if note.trim().is_empty() {
+        for &(at, _, e) in &spans {
+            edits.push((to_orig(at), to_orig(e), String::new()));
+        }
+    } else if let Some(&(_, o, e)) = spans.first() {
+        edits.push((to_orig(o), to_orig(e), format!("{{{body}}}")));
+        for &(at, _, e) in &spans[1..] {
+            edits.push((to_orig(at), to_orig(e), String::new()));
+        }
+    } else if alone {
+        edits.push((line_start, line_start, format!("{indent}\\note{{{body}}}\n")));
+    } else {
+        edits.push((end_o, end_o, format!("\\note{{{body}}} ")));
+    }
+    edits.sort_by_key(|e| std::cmp::Reverse(e.0));
+    let mut out = src.to_string();
+    for (a, b, text) in edits {
+        out.replace_range(a..b, &text);
+        // A line left with nothing on it goes too.
+        if text.is_empty() {
+            let ls = out[..a].rfind('\n').map(|p| p + 1).unwrap_or(0);
+            let le = out[a..].find('\n').map(|p| a + p).unwrap_or(out.len());
+            if out[ls..le].trim().is_empty() && le < out.len() {
+                out.replace_range(ls..le + 1, "");
+            }
+        }
+    }
+    Some(out)
 }
 
 /// One entry per `\begin{frame}` in reading order: where it is, its title and its `\note`s.
@@ -273,6 +496,44 @@ pub fn parse_tex_frames(src: &str) -> Vec<TexFrame> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const DECK: &str = "\\begin{document}\n\\begin{frame}{One}\n  Hello % a comment {\n  \\note{Old note}\n\\end{frame}\n\n\\begin{frame}{Two}\n  World\n\\end{frame}\n\\end{document}\n";
+
+    #[test]
+    fn notes_written_in_the_presenter_go_into_the_frame() {
+        let md = "First line\nSecond **bold** & 50% with `code`\n- one\n- two\nAfter the list";
+        let tex = md_to_latex(md);
+        // Replacing a frame's note.
+        let s = set_frame_note(DECK, 0, &tex).unwrap();
+        assert!(s.contains("% a comment {"), "comments are kept: {s}");
+        let f = parse_tex_frames(&s);
+        assert_eq!(f[0].note, md);
+        assert_eq!(f[1].note, "");
+        // Adding one where there was none, just before \end{frame}.
+        let s = set_frame_note(&s, 1, &md_to_latex("New")).unwrap();
+        assert_eq!(parse_tex_frames(&s)[1].note, "New");
+        assert!(s.contains("  World\n  \\note{New}\n\\end{frame}"), "{s}");
+        // Clearing it takes the \note away, line and all.
+        let s = set_frame_note(&s, 1, "").unwrap();
+        assert_eq!(parse_tex_frames(&s)[1].note, "");
+        assert!(!s.contains("\\note{New}") && s.contains("  World\n\\end{frame}"), "{s}");
+        // A frame that is not there.
+        assert!(set_frame_note(DECK, 5, "x").is_none());
+    }
+
+    #[test]
+    fn every_language_and_sign_survives_the_round_trip() {
+        for md in ["ذهبت الى السوق", "100% sure: $5 & #1_a {b} ~ ^ \\", "*emphasis* and **bold**", "Paragraph one\n\nParagraph two"] {
+            let s = set_frame_note(DECK, 0, &md_to_latex(md)).unwrap();
+            assert_eq!(parse_tex_frames(&s)[0].note, md, "{s}");
+        }
+    }
+
+    #[test]
+    fn latex_notes_read_without_stray_blank_lines() {
+        let src = "\\begin{frame}\n\\note{Hi.\\\\\n  Next line.\n  \\begin{itemize}\n    \\item a\n    \\item b\n  \\end{itemize}\n  Done.}\n\\end{frame}";
+        assert_eq!(parse_tex_frames(src)[0].note, "Hi.\nNext line.\n- a\n- b\nDone.");
+    }
 
     #[test]
     fn notes_files_are_named_after_the_presentation() {
@@ -348,7 +609,8 @@ mod tests {
     #[test]
     fn escaped_percent_is_not_a_comment() {
         let f = parse_tex_frames("\\begin{frame}{50\\% done}\n\\end{frame}");
-        assert_eq!(f[0].title, "50\\% done");
+        // Not a comment, and shown as the sign itself.
+        assert_eq!(f[0].title, "50% done");
     }
 
     #[test]

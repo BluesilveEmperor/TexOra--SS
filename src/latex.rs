@@ -243,6 +243,77 @@ pub fn compile_async(tab: u64, tex: PathBuf, engine: Engine, tx: Sender<CompileR
     });
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SyncTarget {
+    pub page: usize,
+    pub x: f32,
+    pub y: f32,
+}
+
+fn field<'a>(out: &'a str, key: &str) -> Option<&'a str> {
+    out.lines().find_map(|l| l.strip_prefix(key))
+}
+
+/// Source line → every place on every page that SyncTeX links to it. A line usually has many: one per
+/// box it made, on each overlay step, and often a few on the page before (where TeX was when the
+/// frame started). Choosing among them is up to the caller; see `app::pick_sync`.
+pub fn forward_sync(tex: &Path, line: usize, pdf: &Path) -> Vec<SyncTarget> {
+    let Some(tool) = find_tool("synctex") else { return vec![] };
+    let arg = format!("{}:1:{}", line, tex.display());
+    match Command::new(tool).arg("view").arg("-i").arg(arg).arg("-o").arg(pdf).output() {
+        Ok(out) => parse_sync_view(&String::from_utf8_lossy(&out.stdout)),
+        Err(_) => vec![],
+    }
+}
+
+/// Reads `synctex view` output: each record starts with `Page:` and has its own `x:` and `y:`.
+pub fn parse_sync_view(s: &str) -> Vec<SyncTarget> {
+    let mut out: Vec<SyncTarget> = vec![];
+    let mut have_x = false;
+    for l in s.lines() {
+        if let Some(p) = l.strip_prefix("Page:") {
+            if let Some(page) = p.trim().parse::<usize>().ok().and_then(|p| p.checked_sub(1)) {
+                out.push(SyncTarget { page, x: 0.0, y: 0.0 });
+                have_x = false;
+            }
+        } else if let (Some(v), Some(last)) = (l.strip_prefix("x:"), out.last_mut()) {
+            last.x = v.trim().parse().unwrap_or(0.0);
+            have_x = true;
+        } else if let (Some(v), Some(last)) = (l.strip_prefix("y:"), out.last_mut()) {
+            if have_x {
+                last.y = v.trim().parse().unwrap_or(0.0);
+            }
+        }
+    }
+    out
+}
+
+/// Place on a page → source file and line.
+pub fn inverse_sync(page: usize, x: f32, y: f32, pdf: &Path) -> Option<(PathBuf, usize)> {
+    let tool = find_tool("synctex")?;
+    let arg = format!("{}:{}:{}:{}", page + 1, x, y, pdf.display());
+    let out = Command::new(tool).arg("edit").arg("-o").arg(arg).output().ok()?;
+    let s = String::from_utf8_lossy(&out.stdout);
+    let line: usize = field(&s, "Line:")?.trim().parse().ok()?;
+    let input = field(&s, "Input:")?.trim().to_string();
+    let p = PathBuf::from(&input);
+    let p = if p.is_absolute() { p } else { pdf.parent()?.join(p) };
+    Some((p, line.max(1)))
+}
+
+#[cfg(test)]
+mod sync_tests {
+    use super::*;
+
+    #[test]
+    fn every_synctex_record_is_read() {
+        let out = "SyncTeX result begin\nOutput:a.pdf\nPage:2\nx:10.5\ny:20.0\nh:1\nv:2\nW:3\nH:4\nbefore:\noffset:0\nmiddle:\nafter:\nOutput:a.pdf\nPage:4\nx:30\ny:40\nSyncTeX result end\n";
+        let r = parse_sync_view(out);
+        assert_eq!(r, vec![SyncTarget { page: 1, x: 10.5, y: 20.0 }, SyncTarget { page: 3, x: 30.0, y: 40.0 }]);
+        assert!(parse_sync_view("").is_empty());
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReqKind {
     Class,
@@ -471,6 +542,21 @@ mod tests {
             assert!(r.ok, "{:?}: {:?} {}", e, r.problems, r.note);
             assert!(r.pdf.exists());
         }
+    }
+
+    #[test]
+    fn source_and_slide_sync_both_ways() {
+        if find_tool("pdflatex").is_none() || find_tool("synctex").is_none() {
+            return;
+        }
+        let t = sample_in("txp-sync");
+        let r = compile(&t, Engine::PdfLatex);
+        assert!(r.ok);
+        let all = forward_sync(&t, 7, &r.pdf);
+        let hit = all.iter().find(|h| h.page == 1).cloned().expect("forward");
+        let (file, line) = inverse_sync(hit.page, hit.x, hit.y, &r.pdf).expect("inverse");
+        assert!(file.ends_with("t.tex"));
+        assert!((6..=8).contains(&line), "line {line}");
     }
 
     #[test]

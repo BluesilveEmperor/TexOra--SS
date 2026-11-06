@@ -297,6 +297,9 @@ impl App {
                     ui.label("Speaker notes");
                     ui.add(Slider::new(&mut self.st.notes_size, 14.0..=48.0).step_by(1.0).suffix(" pt"));
                     ui.end_row();
+                    ui.label("LaTeX editor");
+                    ui.add(Slider::new(&mut self.st.editor_size, 11.0..=22.0).step_by(1.0).suffix(" pt"));
+                    ui.end_row();
                 });
             });
             group(ui, "LaTeX", true, &mut |ui| {
@@ -305,14 +308,22 @@ impl App {
                     engine_combo(ui, &mut self.st.engine);
                 });
                 ui.checkbox(&mut self.st.auto_compile, "Rebuild when the source changes");
+                ui.checkbox(&mut self.st.live_edit, "Live editing: save and rebuild as you type");
             });
             // Tools > Check required packages opens this section.
             let force = std::mem::take(&mut self.show_packages).then_some(true);
             ui.add_space(4.0);
             CollapsingHeader::new(strong("Required LaTeX packages", 14.5)).id_salt(("settings", "Required LaTeX packages")).default_open(false).open(force).show(ui, |ui| self.required_packages(ui));
             group(ui, "Speaker notes", false, &mut |ui| {
-                let place = self.deck_path.as_ref().map(|p| crate::notes::notes_file(p));
+                // A LaTeX presentation keeps its notes in the source, as \note{} in each slide.
+                let place = match &self.src {
+                    Some(s) => Some(s.path.clone()),
+                    None => self.deck_path.as_ref().map(|p| crate::notes::notes_file(p)),
+                };
                 ui.label(RichText::new("TeXora shows notes from the PDF's notes pages, from \\note{} in the LaTeX source, or from a Markdown file beside the presentation with one ## Slide N section per slide. Write that file in any text editor; TeXora reads it when the presentation opens.").size(12.5));
+                if self.src.is_some() {
+                    ui.label(RichText::new("This presentation's notes are saved in its LaTeX source, as \\note{...} in each slide, so the presenter and the LaTeX studio always show the same notes:").size(12.5).color(LEAF_DARK));
+                }
                 match place {
                     Some(p) => {
                         ui.add(Label::new(RichText::new(p.display().to_string()).monospace().size(11.5).color(INK)).wrap().selectable(true));
@@ -372,6 +383,10 @@ impl App {
         ui.horizontal(|ui| {
             if ui.add_enabled(!checking, Button::new(if self.reqs.is_empty() { "Check now" } else { "Check again" })).clicked() {
                 self.check_packages();
+            }
+            if ui.button("Open in LaTeX studio").clicked() {
+                let c = ui.ctx().clone();
+                self.run(Action::CheckPackages, &c);
             }
         });
         if checking {

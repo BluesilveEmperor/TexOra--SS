@@ -20,8 +20,8 @@
 ![The presenter view: notes, current and next slide, slide number, elapsed time, duration and clock](screenshots/presenter.png)
 
 TeXora is a presenter for **LaTeX Beamer** and **PDF** slides. You see your notes, the current and
-next slide and the time; the room sees only the slide. Open a `.tex` file and TeXora compiles it, then
-rebuilds the slides every time you save it in your own editor.
+next slide and the time; the room sees only the slide. Open a `.tex` file and edit it in the built-in
+LaTeX studio, beside a live preview, or in your own editor: the slides rebuild either way.
 
 ## Screenshots
 
@@ -43,11 +43,14 @@ The audience window shows only the slide, fullscreen on a projector or second sc
   duration with pace (ahead or behind), and a clock. Also a large-slide view and a split view.
 - **Audience window** (F5): fullscreen on a second display, or press F11 on one display. Black screen
   (B), whiteboard (W) and freeze (F) to look ahead privately.
-- **LaTeX Beamer**: open a `.tex` file and it compiles with pdfLaTeX, XeLaTeX or LuaLaTeX (chosen for
-  you from `% !TEX program` or the packages used). Edit it in any editor; the slides rebuild when you
-  save. Compile errors are shown with their line until fixed.
-- **Required packages**: Settings lists every package, theme and program your file needs, marked
-  Installed or Needs download, with how to get it.
+- **LaTeX studio**: edit the `.tex` source beside a live preview of the slide and its notes. Slides
+  rebuild as you type, problems are listed with their line numbers, and a double-click on a slide finds
+  its source.
+- **LaTeX Beamer**: a `.tex` file compiles with pdfLaTeX, XeLaTeX or LuaLaTeX (chosen for you from
+  `% !TEX program` or the packages used). Editing it in your own editor works too: the slides rebuild
+  when you save.
+- **Required packages**: every package, theme and program your file needs, marked Installed or Needs
+  download, with how to get it, in the studio and in Settings.
 - **Speaker notes** from PDF notes pages (Beamer's `show notes on second screen`), from `\note{}` in the
   source, from a `.pdfpc` file, or from a Markdown file beside the presentation. **Edit notes** for any
   slide right in the notes panel.
@@ -121,8 +124,8 @@ Nothing else is needed to present PDFs: each package carries the program and its
 1. Start TeXora. **Home** shows your recent files and ways to begin.
 2. Choose **Open PDF presentation** or **Open LaTeX project**, pick a recent file, or drop a file on the
    window. **Try the sample lecture** opens a ready-made talk to explore.
-3. A `.tex` file is compiled for you. Keep editing it in your own LaTeX editor: each time you save, the
-   slides rebuild.
+3. A `.tex` file is compiled for you. Edit it in the **LaTeX studio** (Cmd/Ctrl+E), or in your own
+   LaTeX editor: the slides rebuild either way.
 4. Press **F5** to show the slides to the room, then move with the arrow keys or **Space**.
 
 Each presentation opens in its own tab, and keeps its place, ink and timer. Hover over any button to
@@ -156,6 +159,7 @@ The second row of buttons acts on the open presentation. From left to right:
 | <img src="screenshots/icons/large-slide.png" width="28" alt="Large slide"> | **Large slide** | A large current slide with the notes beside it. | N |
 | <img src="screenshots/icons/split.png" width="28" alt="Slide and notes split"> | **Slide and notes split** | The slide and the notes side by side, with the next slide. | S |
 | <img src="screenshots/icons/overview.png" width="28" alt="Slide overview"> | **Slide overview** | Every slide at a glance. Click one to go there. | O |
+| <img src="screenshots/icons/studio.png" width="28" alt="LaTeX studio"> | **LaTeX studio** | Edit the `.tex` source beside the slide. See [The LaTeX studio](#the-latex-studio). | Cmd/Ctrl+E |
 
 #### The room's screen
 
@@ -233,27 +237,30 @@ TeXora shows notes from any of these:
 - A **notes file** saved next to the presentation (see below), with a `## Slide N` heading for each
   slide. You can also write it yourself in any text editor.
 
-**Where notes are saved.** Notes go into a file in the **same folder as the presentation you opened**,
-named after it with `.note.md` in place of `.pdf` or `.tex`:
+**Where notes are saved.** It depends on what you opened:
 
-| You opened | Notes are saved as (same folder) |
+| You opened | Notes are saved in |
 |---|---|
-| `Lecture.pdf` | `Lecture.note.md` |
-| `Week 3 - Graphs.pdf` | `Week 3 - Graphs.note.md` |
-| `Thesis defense.tex` | `Thesis defense.note.md` |
+| `Lecture.pdf` | `Lecture.note.md`, in the same folder |
+| `Week 3 - Graphs.pdf` | `Week 3 - Graphs.note.md`, in the same folder |
+| `Thesis defense.tex` | `Thesis defense.tex` itself, as `\note{...}` in each slide |
 
-Keep this file with the presentation when you move or share it, and the notes come along. Notes
-saved by earlier versions as `Lecture.notes.md` are still read, and take the new name the next time
-you save.
-**Settings > Speaker notes** shows the exact file for the presentation that is open.
+For a PDF, keep the `.note.md` file with the presentation when you move or share it, and the notes come
+along. Notes saved by earlier versions as `Lecture.notes.md` are still read, and take the new name the
+next time you save.
+
+For a LaTeX presentation, the source is the one place its notes live, so the presenter and the LaTeX
+studio always show the same notes: a note edited in the presenter is written into that slide's
+`\note{...}` and the slides rebuild, and a `\note` edited in the studio (or in your own editor) shows
+in the presenter after the rebuild. **Settings > Speaker notes** shows where the open presentation's
+notes are.
 
 **Edit notes.** Click <img src="screenshots/icons/edit-notes.png" width="22" alt="Edit notes"> or press
 **E**, type, then click <img src="screenshots/icons/save-notes.png" width="22" alt="Save"> or press
 **Cmd/Ctrl+Enter** to save; **Esc** cancels. On a slide without notes, **Write notes** in the notes panel
-does the same. Your notes are saved in the presentation's notes file (for `Lecture.pdf`, that is
-`Lecture.note.md` in the same folder), so they open with it next time. Markdown works: `**bold**`,
-`*emphasis*`, `- lists` and `# headings`. Clearing all the text brings back the notes from the PDF or
-source.
+does the same. Your notes are saved where the table above says, so they open with the presentation
+next time. Markdown works: `**bold**`, `*emphasis*`, `- lists` and `# headings` (in a `.tex` file they
+become `\textbf`, `\emph` and a list). Clearing all the text removes the slide's note.
 
 **Any language.** Notes can be written in any language, including Arabic, Chinese, Japanese and
 Korean, and emoji. The fonts come from your computer. Arabic notes are shown right to left, aligned to
@@ -261,6 +268,33 @@ the right, both while you type them and when they are shown. Notes are
 saved as UTF-8; files saved as UTF-16 or in older encodings are read too.
 
 ![Editing the notes of a slide](screenshots/notes-edit.png)
+
+### The LaTeX studio
+
+Open a `.tex` file, then click <img src="screenshots/icons/studio.png" width="22" alt="LaTeX studio">,
+choose **View > LaTeX studio** or press **Cmd/Ctrl+E**. The source is on the left, the slide and its
+notes on the right, and compile messages along the bottom.
+
+![The LaTeX studio: source editor, slide preview with notes, and the problems panel](screenshots/studio.png)
+
+| Control | What it does |
+|---|---|
+| **Compile** | Saves the source and builds the slides now. Also **Cmd/Ctrl+B**. |
+| **Save** | Saves the source, and rebuilds if **Rebuild on save** is on. Also **Cmd/Ctrl+S**. |
+| **Engine** (Auto) | pdfLaTeX, XeLaTeX or LuaLaTeX. **Auto** picks from `% !TEX program` or the packages used. |
+| **Check packages** | Lists every package, theme and program the file needs, and how to get any that are missing. |
+| **Live** | Saves and rebuilds shortly after you stop typing. |
+| **Rebuild on save** | Rebuilds each time the file is saved, here or in your own editor. |
+| **Follow cursor** | Shows the slide for the line the cursor is on. |
+| **Present** | Back to the presenter view. |
+
+- **Find the source of a slide**: double-click anywhere on the slide preview; the editor jumps to that
+  line. The **<** and **>** buttons above the preview move between slides, and the wheel zooms.
+- **Problems, Packages, Full log**: the panel along the bottom. Errors show their line number; click
+  one to go there. The panel's buttons wrap long lines, copy the text, and hide or show the panel. Drag
+  its top edge to resize it.
+- If a presentation does not compile when you open it, it opens in the studio with the problems listed.
+- Linking slides and source uses SyncTeX, which comes with TeX Live, MacTeX and MiKTeX.
 
 ### Presenting to the room
 
@@ -318,6 +352,7 @@ All can be changed in Settings. On macOS **Cmd** is used; on Windows and Linux, 
 | Audience window | F5 | Fullscreen | F11 |
 | Black / white screen | B / W | Freeze audience | F |
 | Overview | O | Split view | S |
+| LaTeX studio | Cmd/Ctrl+E | Save source | Cmd/Ctrl+S |
 | Large slide | N | Back | Backspace |
 | Start or pause timer | P | Stop and reset timer | R |
 | Set talk duration | U | Bookmark slide | M |

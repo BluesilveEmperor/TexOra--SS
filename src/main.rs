@@ -20,6 +20,7 @@ mod ui_chrome;
 mod ui_panels;
 mod ui_present;
 mod ui_start;
+mod ui_studio;
 mod update;
 
 use app::{App, Args};
@@ -54,6 +55,7 @@ impl eframe::App for Root {
                 app::View::Presenter => a.presenter_ui(ui),
                 app::View::Split => a.split_ui(ui),
                 app::View::Overview => a.overview_ui(ui),
+                app::View::Studio => a.studio_ui(ui),
             });
         }
         a.duration_popup(&ctx);
@@ -92,7 +94,7 @@ Usage: TeXora [file.pdf | file.tex] [options]
 
 For testing and screenshots:
   --screenshot <file.png>  draw about 120 frames, save a picture of the window and exit
-  --view <name>            start on: presenter, split, swap, overview,
+  --view <name>            start on: presenter, split, swap, overview, studio,
                            analytics, settings, outline, search, audience, textnotes
   --goto <n>               start on page position n
   --window <W>x<H>         start at this window size

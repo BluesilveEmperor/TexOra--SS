@@ -88,7 +88,7 @@ impl App {
         if card(ui, width, Icon::Pdf, "Open PDF presentation", "Present any PDF, with notes if it has them", false).clicked() {
             self.open_dialog("PDF presentation", &["pdf"]);
         }
-        if card(ui, width, Icon::Folder, "Open LaTeX project", "Compile a .tex file and present it", false).clicked() {
+        if card(ui, width, Icon::Folder, "Open LaTeX project", "Compile a .tex file, edit it and present", false).clicked() {
             self.open_dialog("LaTeX source", &["tex"]);
         }
         if card(ui, width, Icon::Spark, "Try the sample lecture", "See notes, overlays and citations at work", false).clicked() {
@@ -172,7 +172,7 @@ impl App {
             ui.add_space(8.0);
             for (icon, t) in [
                 (Icon::Presenter, "See notes, the next slide and your time while the room sees only the slide."),
-                (Icon::Code, "Open a .tex file: it compiles, and rebuilds each time you save it."),
+                (Icon::Code, "Edit LaTeX beside a live preview. Slides rebuild as you type."),
                 (Icon::Chart, "Rehearse, then see where the time went on each slide."),
             ] {
                 ui.horizontal_top(|ui| {

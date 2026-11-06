@@ -52,6 +52,9 @@ pub enum Icon {
     Trash,
     Spark,
     Note,
+    Wrap,
+    Refresh,
+    Copy,
     Help,
     First,
     Prev,
@@ -272,6 +275,25 @@ pub fn paint(p: &Painter, r: Rect, icon: Icon, c: Color32) {
             p.add(CubicBezierShape::from_points_stroke(curve, false, Color32::TRANSPARENT, s));
             line(&[(14.5, 8.6), (12.0, 10.5), (12.0, 11.8)]);
             p.circle_filled(at(12.0, 14.1), 0.9 * u, c);
+        }
+        Icon::Wrap => {
+            line(&[(3.5, 6.0), (20.5, 6.0)]);
+            line(&[(3.5, 18.0), (9.0, 18.0)]);
+            let curve = [at(3.5, 12.0), at(22.0, 11.0), at(22.0, 18.0), at(13.5, 18.0)];
+            p.add(CubicBezierShape::from_points_stroke(curve, false, Color32::TRANSPARENT, s));
+            line(&[(15.5, 15.5), (13.0, 18.0), (15.5, 20.5)]);
+        }
+        Icon::Refresh => {
+            let curve = [at(19.5, 9.0), at(16.0, 3.0), at(6.0, 3.5), at(4.5, 11.0)];
+            p.add(CubicBezierShape::from_points_stroke(curve, false, Color32::TRANSPARENT, s));
+            let curve = [at(4.5, 15.0), at(8.0, 21.0), at(18.0, 20.5), at(19.5, 13.0)];
+            p.add(CubicBezierShape::from_points_stroke(curve, false, Color32::TRANSPARENT, s));
+            line(&[(20.0, 4.0), (19.5, 9.0), (14.5, 8.5)]);
+            line(&[(4.0, 20.0), (4.5, 15.0), (9.5, 15.5)]);
+        }
+        Icon::Copy => {
+            rect(9.0, 9.0, 20.0, 20.0, 1.5);
+            line(&[(15.0, 9.0), (15.0, 4.0), (4.0, 4.0), (4.0, 15.0), (9.0, 15.0)]);
         }
         Icon::Note => {
             line(&[(12.0, 4.0), (4.0, 4.0), (4.0, 20.0), (20.0, 20.0), (20.0, 12.0)]);

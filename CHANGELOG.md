@@ -2,6 +2,26 @@
 
 All notable changes to TeXora. The newest version is first.
 
+## 1.2.0
+
+### New
+
+- Added LaTeX studio.
+- Edit the `.tex` source beside a live preview of the slide and its notes.
+- Slides rebuild shortly after you stop typing, or when you save.
+- Problems with their line numbers, required packages and the full log in one panel.
+- Double-click a slide to jump to its source; the slide follows the cursor as you move through the source.
+- Open it with the studio button, **View > LaTeX studio** or **Cmd/Ctrl+E**; save with **Cmd/Ctrl+S**.
+- **Check packages** opens the package list in the studio.
+
+### Fixed
+
+- Notes now stay the same in the presenter and the LaTeX studio.
+- For a `.tex` presentation, a note edited in the presenter is saved into that slide's `\note{...}` in the source.
+- A `\note` edited in the studio shows in the presenter, even when a `.note.md` file already exists.
+- After a rebuild, the presenter stays on the slide you were on.
+- A note being edited stays with its own presentation when you switch tabs.
+
 ## 1.1.0
 
 ### New

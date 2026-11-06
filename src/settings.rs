@@ -21,6 +21,7 @@ pub enum Action {
     Whiteboard,
     Freeze,
     Overview,
+    Studio,
     SwapNotes,
     Outline,
     Search,
@@ -45,6 +46,7 @@ pub enum Action {
     StartPage,
     SetDuration,
     CheckPackages,
+    Save,
     EditNotes,
     AddBookmark,
     CloseTab,
@@ -69,6 +71,7 @@ impl Action {
             Action::Whiteboard => "Whiteboard",
             Action::Freeze => "Freeze audience screen",
             Action::Overview => "Slide overview",
+            Action::Studio => "LaTeX studio",
             Action::SwapNotes => "Large slide view",
             Action::Outline => "Contents and bookmarks",
             Action::Search => "Search",
@@ -93,6 +96,7 @@ impl Action {
             Action::StartPage => "Home",
             Action::SetDuration => "Set talk duration",
             Action::CheckPackages => "Check required packages",
+            Action::Save => "Save source",
             Action::EditNotes => "Edit notes for this slide",
             Action::AddBookmark => "Bookmark this slide",
             Action::CloseTab => "Close this tab",
@@ -100,7 +104,7 @@ impl Action {
     }
     /// Keys that keep working while typing, because they hold a modifier or close things.
     pub fn works_while_typing(self) -> bool {
-        matches!(self, Action::Compile | Action::Search | Action::Open | Action::Cancel | Action::CheckPackages | Action::StartPage | Action::CloseTab)
+        matches!(self, Action::Save | Action::Compile | Action::Search | Action::Open | Action::Cancel | Action::Studio | Action::CheckPackages | Action::StartPage | Action::CloseTab)
     }
 }
 
@@ -199,6 +203,8 @@ pub fn default_keys() -> Vec<(Action, Vec<KeyBind>)> {
         (StartPage, vec![KeyBind::cmd("L")]),
         (SetDuration, vec![k("U")]),
         (CheckPackages, vec![KeyBind::cmd("K")]),
+        (Studio, vec![KeyBind::cmd("E")]),
+        (Save, vec![KeyBind::cmd("S")]),
         (EditNotes, vec![k("E")]),
         (AddBookmark, vec![k("M")]),
         (CloseTab, vec![KeyBind::cmd("W")]),
@@ -316,7 +322,7 @@ mod tests {
     #[test]
     fn default_keys_do_not_clash_and_all_exist() {
         let d = default_keys();
-        assert_eq!(d.len(), 43);
+        assert_eq!(d.len(), 45);
         let mut seen = std::collections::HashSet::new();
         for (a, ks) in &d {
             assert!(!ks.is_empty(), "{a:?}");

@@ -393,7 +393,7 @@ impl App {
         let facts = Facts {
             os: crate::cli::Os::current(),
             pdf_engine_error: self.engine_error.clone(),
-            tex_tools: ["pdflatex", "xelatex", "lualatex"].iter().map(|t| (*t, crate::latex::find_tool(t).is_some())).collect(),
+            tex_tools: ["pdflatex", "xelatex", "lualatex", "synctex"].iter().map(|t| (*t, crate::latex::find_tool(t).is_some())).collect(),
         };
         let list = checks(&facts);
         let resp = Modal::new(sid("syscheck")).show(ctx, |ui| {
@@ -666,6 +666,7 @@ impl App {
         }
         self.act(ui, Icon::Split, v == View::Split, Action::SplitView);
         self.act(ui, Icon::Grid, v == View::Overview, Action::Overview);
+        self.act(ui, Icon::Code, v == View::Studio, Action::Studio);
     }
 
     fn ink_group(&mut self, ui: &mut Ui) {
@@ -773,6 +774,7 @@ impl App {
             }
             self.item(ui, "Slide and notes split", Action::SplitView);
             self.item(ui, "Slide overview", Action::Overview);
+            self.item(ui, "LaTeX studio", Action::Studio);
             ui.separator();
             self.item(ui, "Zoom in", Action::ZoomIn);
             self.item(ui, "Zoom out", Action::ZoomOut);

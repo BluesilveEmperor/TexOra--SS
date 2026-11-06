@@ -49,8 +49,10 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </dict>
 </plist>
 EOF
+# Signed ad hoc (no paid Apple Developer ID): the PDF engine first, then the app around it.
+codesign --force --sign - "$APP/Contents/MacOS/libpdfium.dylib"
 codesign --force --deep --sign - "$APP"
-codesign --verify --deep "$APP"
+codesign --verify --deep --strict "$APP"
 ditto -c -k --keepParent "$APP" "$OUT/$PKG.zip"
 
 # Validate the copy a person would download, unpacked somewhere else.
@@ -59,6 +61,8 @@ ditto -x -k "$OUT/$PKG.zip" "$CHECK"
 BIN="$CHECK/TeXora.app/Contents/MacOS/TeXora"
 {
   echo "Validated by: running the package on this Mac ($(file -b "$BIN" | cut -d' ' -f3-))"
+  echo "Signature: $(codesign -dv "$CHECK/TeXora.app" 2>&1 | sed -n 's/^Signature=//p'), checked with codesign --verify --deep --strict"
+  codesign --verify --deep --strict "$CHECK/TeXora.app" || { echo "FAILED: signature"; exit 1; }
   echo "App icon: $(iconutil -c iconset "$CHECK/TeXora.app/Contents/Resources/TeXora.icns" -o "$CHECK/shown.iconset" && ls "$CHECK/shown.iconset" | wc -l | tr -d ' ') sizes"
   # People using TeXora install nothing: the program may only need macOS itself.
   if ! python3 scripts/list-system-libs.py "$BIN" --only-os; then echo "FAILED: needs libraries outside macOS"; exit 1; fi

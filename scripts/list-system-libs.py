@@ -70,7 +70,7 @@ def pe_imports(b):
 def windows_os(name):
     n = name.lower()
     return n.startswith("api-ms-win-") or n in {
-        "advapi32.dll", "bcrypt.dll", "bcryptprimitives.dll", "combase.dll", "dwmapi.dll", "gdi32.dll",
+        "advapi32.dll", "bcrypt.dll", "bcryptprimitives.dll", "combase.dll", "dwmapi.dll", "dwrite.dll", "gdi32.dll",
         "imm32.dll", "kernel32.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll", "opengl32.dll",
         "shell32.dll", "shlwapi.dll", "user32.dll", "uxtheme.dll", "ws2_32.dll", "comctl32.dll",
         "comdlg32.dll", "crypt32.dll", "secur32.dll", "userenv.dll", "version.dll", "winmm.dll", "msvcrt.dll"}

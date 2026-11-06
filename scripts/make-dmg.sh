@@ -13,6 +13,9 @@ ditto -x -k "$OUT/$PKG.zip" "$STAGE"
 ln -s /Applications "$STAGE/Applications"
 rm -f "$DMG"
 hdiutil create -quiet -volname "TeXora" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$DMG"
+# The disk image is signed ad hoc too, like the app inside it.
+codesign --force --sign - "$DMG"
+codesign --verify "$DMG"
 
 # Open the image the way a person would, and check the app inside runs.
 MOUNT=$(mktemp -d)
@@ -25,8 +28,8 @@ if [ -x "$APP/Contents/MacOS/TeXora" ] && [ -L "$MOUNT/Applications" ]; then
 fi
 hdiutil detach -quiet "$MOUNT"
 if [ "$OK" = 1 ]; then
-  echo "Installer: $PKG.dmg opens, holds TeXora.app and an Applications link, and the app runs"
-  echo "Installer: $PKG.dmg checked" >> "$OUT/$PKG.validation.txt"
+  echo "Installer: $PKG.dmg opens, holds TeXora.app and an Applications link, and the app runs; signed ad hoc"
+  echo "Installer: $PKG.dmg checked, signed ad hoc" >> "$OUT/$PKG.validation.txt"
 else
   echo "FAILED: $PKG.dmg is not right" >&2
   exit 1

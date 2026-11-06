@@ -447,11 +447,11 @@ impl App {
     }
 
     fn read_source(&self, path: &Path) -> Option<Source> {
-        let text = std::fs::read_to_string(path).ok()?;
-        // One untouched copy, since live editing saves as you type.
+        let text = notes::read_text(path)?;
+        // One untouched copy, byte for byte, since live editing saves as you type.
         let bak = path.with_extension("tex.texora-backup");
         if !bak.exists() {
-            let _ = std::fs::write(&bak, &text);
+            let _ = std::fs::copy(path, &bak);
         }
         let frames = notes::parse_tex_frames(&text);
         Some(Source {
@@ -480,6 +480,7 @@ impl App {
         self.loading = false;
         let same = self.deck_path.as_deref() == Some(doc.path.as_path()) && self.doc.is_some();
         if !same {
+            self.save_note_draft();
             self.finish_session();
             self.save_side();
             if self.notes_dirty.is_some() {
@@ -487,7 +488,7 @@ impl App {
             }
             self.deck_path = Some(doc.path.clone());
             self.side = Sidecar::load(&doc.path);
-            self.notes = notes::parse_md(&std::fs::read_to_string(doc.path.with_extension("notes.md")).unwrap_or_default());
+            self.notes = notes::load_notes(&doc.path);
             for (k, v) in notes::load_pdfpc(&doc.path.with_extension("pdfpc")) {
                 self.notes.entry(k).or_insert(v);
             }
@@ -576,9 +577,41 @@ impl App {
         }
     }
 
+    // ---------- editing notes ----------
+
+    /// Opens the notes of the slide on screen for editing, in the notes panel.
+    pub fn begin_note_edit(&mut self) {
+        if self.doc.is_none() {
+            return;
+        }
+        if !matches!(self.view, View::Presenter | View::Split) {
+            self.view = View::Presenter;
+        }
+        let f = self.frame();
+        let text = self.note_for(f).unwrap_or_default();
+        self.note_draft = Some((f, text));
+        self.note_focus = true;
+    }
+
+    /// Saves the draft into `<presentation>.note.md` beside the presentation. Clearing all the text
+    /// brings back the notes from the PDF or the LaTeX source.
+    pub fn save_note_draft(&mut self) {
+        let Some((f, text)) = self.note_draft.take() else { return };
+        if text.trim().is_empty() {
+            self.notes.remove(&f);
+        } else {
+            self.notes.insert(f, text);
+        }
+        self.save_notes();
+        if !self.status.starts_with("Could not") {
+            let file = self.deck_path.as_ref().and_then(|p| notes::notes_file(p).file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_default();
+            self.status = format!("Notes for slide {} saved in {file}, beside the presentation.", f + 1);
+        }
+    }
+
     pub fn save_notes(&mut self) {
         if let Some(p) = &self.deck_path {
-            if let Err(e) = std::fs::write(p.with_extension("notes.md"), notes::to_md(&self.notes)) {
+            if let Err(e) = notes::save_notes(p, &self.notes) {
                 self.status = format!("Could not save notes: {e}");
             }
         }
@@ -796,7 +829,7 @@ impl App {
             let m = latex::mtime(&s.path);
             if m.is_some() && m != s.disk_mtime && !s.dirty {
                 s.disk_mtime = m;
-                if let Ok(t) = std::fs::read_to_string(&s.path) {
+                if let Some(t) = notes::read_text(&s.path) {
                     s.frames = notes::parse_tex_frames(&t);
                     s.text = t;
                 }
@@ -1220,6 +1253,7 @@ impl App {
                 self.zoom = None;
                 self.notes_zoom = None;
             }
+            EditNotes => self.begin_note_edit(),
             CheckPackages => {
                 // The list lives in Settings, opened at that section.
                 self.check_packages();
@@ -1460,7 +1494,7 @@ impl App {
     pub fn script_report(&self) -> String {
         let ink: usize = self.side.ink.values().map(Vec::len).sum();
         format!(
-            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} packages={} recent={} toast={} skipped={:?}",
+            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} packages={} recent={} toast={} skipped={:?} draft={:?}",
             self.cur + 1,
             self.frame() + 1,
             self.deck.slides.get(self.cur).map(|s| s.step + 1).unwrap_or(0),
@@ -1501,6 +1535,7 @@ impl App {
             self.st.recent.len(),
             self.update_toast,
             self.st.skipped_update,
+            self.note_draft,
         )
     }
 

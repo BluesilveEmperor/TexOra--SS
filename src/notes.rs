@@ -1,6 +1,33 @@
 //! Text speaker notes: Markdown side files, `\note{}` in LaTeX source, and .pdfpc imports.
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// The notes file of a presentation, in the same folder, named after it: `Lecture.pdf` (or
+/// `Lecture.tex`) keeps its notes in `Lecture.note.md`.
+pub fn notes_file(deck: &Path) -> PathBuf {
+    deck.with_extension("note.md")
+}
+
+/// The name used before (`Lecture.notes.md`). It is still read when there is no `.note.md` yet.
+pub fn older_notes_file(deck: &Path) -> PathBuf {
+    deck.with_extension("notes.md")
+}
+
+/// The notes saved for a presentation, from its notes file (or the file under the older name).
+pub fn load_notes(deck: &Path) -> Notes {
+    let text = read_text(&notes_file(deck)).or_else(|| read_text(&older_notes_file(deck))).unwrap_or_default();
+    parse_md(&text)
+}
+
+/// Writes the notes into the presentation's notes file. A notes file under the older name becomes the
+/// new one first, so a presentation's notes stay in one file and nothing is left behind.
+pub fn save_notes(deck: &Path, notes: &Notes) -> std::io::Result<()> {
+    let (new, old) = (notes_file(deck), older_notes_file(deck));
+    if !new.exists() && old.exists() {
+        let _ = std::fs::rename(&old, &new);
+    }
+    std::fs::write(&new, to_md(notes))
+}
 
 /// Notes by frame number (0-based).
 pub type Notes = BTreeMap<usize, String>;
@@ -42,9 +69,51 @@ pub fn to_md(notes: &Notes) -> String {
     s
 }
 
+/// Reads a text file in whatever encoding it was saved in: UTF-8 (with or without a byte-order mark),
+/// UTF-16 (as Windows Notepad's "Unicode" saves), or an older one-byte Windows encoding. Notes that
+/// could not be read would look empty and be written over at the next save, so nothing is refused.
+pub fn read_text(path: &Path) -> Option<String> {
+    std::fs::read(path).ok().map(|b| decode_text(&b))
+}
+
+pub fn decode_text(bytes: &[u8]) -> String {
+    if let Some(b) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return String::from_utf8_lossy(b).into_owned();
+    }
+    let utf16 = |b: &[u8], little: bool| {
+        let units: Vec<u16> = b.chunks_exact(2).map(|p| if little { u16::from_le_bytes([p[0], p[1]]) } else { u16::from_be_bytes([p[0], p[1]]) }).collect();
+        String::from_utf16_lossy(&units)
+    };
+    if let Some(b) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        return utf16(b, true);
+    }
+    if let Some(b) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        return utf16(b, false);
+    }
+    // UTF-16 without a mark: most characters of ordinary text have a zero byte beside them. Checked
+    // before UTF-8, because zero bytes are allowed there too, though no real text has them.
+    let zeros = |start: usize| bytes.iter().skip(start).step_by(2).filter(|b| **b == 0).count();
+    let half = bytes.len() / 2;
+    if bytes.len() >= 4 && zeros(1) * 2 > half {
+        return utf16(bytes, true);
+    }
+    if bytes.len() >= 4 && zeros(0) * 2 > half {
+        return utf16(bytes, false);
+    }
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_string();
+    }
+    // Windows-1252, which covers Latin-1 too.
+    const HIGH: [char; 32] = [
+        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8d}', 'Ž', '\u{8f}', '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š',
+        '›', 'œ', '\u{9d}', 'ž', 'Ÿ',
+    ];
+    bytes.iter().map(|&b| if (0x80..0xA0).contains(&b) { HIGH[(b - 0x80) as usize] } else { b as char }).collect()
+}
+
 pub fn load_pdfpc(path: &Path) -> Notes {
     let mut out = Notes::new();
-    let Ok(src) = std::fs::read_to_string(path) else { return out };
+    let Some(src) = read_text(path) else { return out };
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&src) else { return out };
     for p in v["pages"].as_array().into_iter().flatten() {
         if let (Some(i), Some(n)) = (p["idx"].as_u64(), p["note"].as_str()) {
@@ -204,6 +273,57 @@ pub fn parse_tex_frames(src: &str) -> Vec<TexFrame> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notes_files_are_named_after_the_presentation() {
+        assert_eq!(notes_file(Path::new("/talks/Lecture.pdf")), Path::new("/talks/Lecture.note.md"));
+        assert_eq!(notes_file(Path::new("/talks/Thesis defense.tex")), Path::new("/talks/Thesis defense.note.md"));
+        assert_eq!(notes_file(Path::new("/talks/Week 3.v2.pdf")), Path::new("/talks/Week 3.v2.note.md"));
+    }
+
+    #[test]
+    fn notes_under_the_older_name_are_kept_and_moved_over() {
+        let d = std::env::temp_dir().join(format!("txp-note-name-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let deck = d.join("Lecture.pdf");
+        let _ = std::fs::remove_file(notes_file(&deck));
+        std::fs::write(older_notes_file(&deck), "## Slide 1\nOld note\n").unwrap();
+        let mut n = load_notes(&deck);
+        assert_eq!(n.get(&0).map(String::as_str), Some("Old note"));
+        n.insert(1, "New note".to_string());
+        save_notes(&deck, &n).unwrap();
+        assert!(!older_notes_file(&deck).exists(), "the old file became the new one");
+        let saved = load_notes(&deck);
+        assert_eq!(saved.get(&0).map(String::as_str), Some("Old note"));
+        assert_eq!(saved.get(&1).map(String::as_str), Some("New note"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn notes_files_read_in_any_common_encoding() {
+        let text = "## Slide 1\nمرحبا — שלום — 你好 — café\n";
+        assert_eq!(decode_text(text.as_bytes()), text);
+        let mut bom = vec![0xEF, 0xBB, 0xBF];
+        bom.extend(text.as_bytes());
+        assert_eq!(decode_text(&bom), text);
+        let le: Vec<u8> = [0xFF, 0xFE].into_iter().chain(text.encode_utf16().flat_map(|u| u.to_le_bytes())).collect();
+        assert_eq!(decode_text(&le), text);
+        let be: Vec<u8> = [0xFE, 0xFF].into_iter().chain(text.encode_utf16().flat_map(|u| u.to_be_bytes())).collect();
+        assert_eq!(decode_text(&be), text);
+        let plain = "## Slide 1\nHello there\n";
+        let no_mark: Vec<u8> = plain.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        assert_eq!(decode_text(&no_mark), plain);
+        // café and “quotes” in Windows-1252.
+        assert_eq!(decode_text(&[b'c', b'a', b'f', 0xE9, b' ', 0x93, b'q', 0x94]), "café “q”");
+    }
+
+    #[test]
+    fn notes_in_any_language_survive_saving_and_loading() {
+        let mut n = Notes::new();
+        n.insert(0, "العربية: مرحبا بكم".to_string());
+        n.insert(1, "עברית, 中文, 日本語, 한국어, हिन्दी, ไทย 🎤".to_string());
+        assert_eq!(parse_md(&decode_text(to_md(&n).as_bytes())), n);
+    }
 
     #[test]
     fn markdown_round_trip() {

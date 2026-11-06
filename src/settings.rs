@@ -45,6 +45,7 @@ pub enum Action {
     StartPage,
     SetDuration,
     CheckPackages,
+    EditNotes,
     AddBookmark,
     CloseTab,
 }
@@ -92,6 +93,7 @@ impl Action {
             Action::StartPage => "Home",
             Action::SetDuration => "Set talk duration",
             Action::CheckPackages => "Check required packages",
+            Action::EditNotes => "Edit notes for this slide",
             Action::AddBookmark => "Bookmark this slide",
             Action::CloseTab => "Close this tab",
         }
@@ -197,6 +199,7 @@ pub fn default_keys() -> Vec<(Action, Vec<KeyBind>)> {
         (StartPage, vec![KeyBind::cmd("L")]),
         (SetDuration, vec![k("U")]),
         (CheckPackages, vec![KeyBind::cmd("K")]),
+        (EditNotes, vec![k("E")]),
         (AddBookmark, vec![k("M")]),
         (CloseTab, vec![KeyBind::cmd("W")]),
     ]
@@ -313,7 +316,7 @@ mod tests {
     #[test]
     fn default_keys_do_not_clash_and_all_exist() {
         let d = default_keys();
-        assert_eq!(d.len(), 42);
+        assert_eq!(d.len(), 43);
         let mut seen = std::collections::HashSet::new();
         for (a, ks) in &d {
             assert!(!ks.is_empty(), "{a:?}");

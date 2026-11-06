@@ -51,6 +51,7 @@ pub enum Icon {
     Warn,
     Trash,
     Spark,
+    Note,
     Help,
     First,
     Prev,
@@ -271,6 +272,12 @@ pub fn paint(p: &Painter, r: Rect, icon: Icon, c: Color32) {
             p.add(CubicBezierShape::from_points_stroke(curve, false, Color32::TRANSPARENT, s));
             line(&[(14.5, 8.6), (12.0, 10.5), (12.0, 11.8)]);
             p.circle_filled(at(12.0, 14.1), 0.9 * u, c);
+        }
+        Icon::Note => {
+            line(&[(12.0, 4.0), (4.0, 4.0), (4.0, 20.0), (20.0, 20.0), (20.0, 12.0)]);
+            line(&[(7.5, 9.0), (11.0, 9.0)]);
+            line(&[(7.5, 16.0), (15.5, 16.0)]);
+            line(&[(10.0, 13.5), (10.7, 11.0), (17.8, 3.9), (20.1, 6.2), (13.0, 13.2), (10.0, 13.5)]);
         }
         Icon::Help => {
             p.circle_stroke(at(12.0, 12.0), 9.0 * u, s);

@@ -468,11 +468,71 @@ impl App {
         }
     }
 
+    /// Typing changes only the draft; the tick in the toolbar (or Cmd/Ctrl+Enter) saves it, the cross
+    /// or Esc drops it.
+    fn note_editor(&mut self, ui: &mut Ui, rect: Rect, s: f32) {
+        let size = (self.st.notes_size * s).clamp(14.0, 40.0);
+        let shown = self.frame();
+        let focus = std::mem::take(&mut self.note_focus);
+        let Some((slide, draft)) = &mut self.note_draft else { return };
+        ui.painter().rect_filled(rect, 0.0, Color32::from_rgb(250, 250, 248));
+        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.5, LEAF), StrokeKind::Inside);
+        let inner = rect.shrink(10.0);
+        let mut child = ui.new_child(UiBuilder::new().max_rect(inner));
+        child.set_clip_rect(inner.intersect(ui.clip_rect()));
+        if *slide != shown {
+            child.label(RichText::new(format!("Editing the notes for slide {}", *slide + 1)).size(13.0).color(WARN));
+        }
+        ScrollArea::vertical().id_salt("notes-edit").auto_shrink([false, false]).show(&mut child, |ui| {
+            let id = sid("notes-editor");
+            let ctx = ui.ctx().clone();
+            if crate::bidi::has_rtl(draft) {
+                // Arabic, Hebrew and similar scripts: an editor that lays lines out right to left. It
+                // takes over from the plain box (and its cursor) as soon as such a letter is typed.
+                if focus {
+                    let end = draft.chars().count();
+                    crate::rtl_edit::set_cursor(&ctx, id, end, end);
+                    ui.memory_mut(|m| m.request_focus(id));
+                }
+                let min = ui.available_height();
+                crate::rtl_edit::show(ui, id, draft, FontId::proportional(size), Color32::from_rgb(35, 35, 35), min);
+                if let Some((cursor, anchor)) = crate::rtl_edit::cursor(&ctx, id) {
+                    let mut state = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
+                    state.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(anchor), egui::text::CCursor::new(cursor))));
+                    state.store(&ctx, id);
+                }
+            } else {
+                let rows = (ui.available_height() / (size * 1.3)) as usize;
+                let edit = TextEdit::multiline(draft)
+                    .id(id)
+                    .hint_text("Type your notes. **bold**, *emphasis*, - lists and # headings work.")
+                    .font(FontId::proportional(size))
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(rows.max(2))
+                    .frame(Frame::NONE);
+                let r = ui.add(edit);
+                if focus {
+                    r.request_focus();
+                }
+                if let Some(range) = egui::text_edit::TextEditState::load(&ctx, id).and_then(|s| s.cursor.char_range()) {
+                    crate::rtl_edit::set_cursor(&ctx, id, range.primary.index.0, range.secondary.index.0);
+                }
+            }
+        });
+        if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter)) {
+            self.save_note_draft();
+        }
+    }
+
     pub fn notes_panel(&mut self, ui: &mut Ui, rect: Rect, s: f32) {
         let frame = self.frame();
         let sl = self.deck.slides.get(self.cur).cloned();
         let has_pdf = sl.as_ref().and_then(|x| x.notes).is_some();
         let text = self.note_for(frame);
+        if self.note_draft.is_some() {
+            self.note_editor(ui, rect, s);
+            return;
+        }
         let mode = match self.notes_view {
             NotesView::Auto if self.notes.contains_key(&frame) => NotesView::Text,
             NotesView::Auto if has_pdf => NotesView::Pdf,
@@ -500,13 +560,18 @@ impl App {
                 let inner = rect.shrink(14.0 * s.max(0.6));
                 let mut child = ui.new_child(UiBuilder::new().max_rect(inner));
                 child.set_clip_rect(inner.intersect(ui.clip_rect()));
+                let mut write = false;
                 let size = (self.st.notes_size * s).max(11.0);
                 let out = ScrollArea::vertical().id_salt("notes-text").auto_shrink([false, false]).show(&mut child, |ui| match &text {
                     Some(t) => markdown(ui, t, size),
                     None => {
-                        ui.label(RichText::new("No notes on this slide.").size((20.0 * s).max(11.0)).color(MUTED));
+                        ui.label(RichText::new("No notes on this slide yet.").size((20.0 * s).max(11.0)).color(MUTED));
+                        write = ui.button("Write notes").clicked();
                     }
                 });
+                if write {
+                    self.begin_note_edit();
+                }
                 // Text resizes instead of zooming: the wheel scrolls long notes, and otherwise
                 // sets the size, as pinch and Cmd or Ctrl with the wheel always do.
                 if ui.rect_contains_pointer(rect) {
@@ -1049,27 +1114,36 @@ pub fn markdown(ui: &mut Ui, src: &str, size: f32) {
         let em = TextFormat { italics: true, ..base.clone() };
         let code = TextFormat { font_id: FontId::monospace(sz * 0.9), background: Color32::from_gray(218), ..base.clone() };
         let head = TextFormat { color: LEAF_DARK, font_id: FontId::new(sz, strong_font.family.clone()), ..base.clone() };
+        // The line's pieces with their style: 0 plain (or heading), 1 bold, 2 code, 3 emphasis.
+        let formats = [if heading { head.clone() } else { base.clone() }, strong.clone(), code.clone(), em.clone()];
+        let mut segs: Vec<(&str, usize)> = vec![];
         let mut rest = body;
         while !rest.is_empty() {
             let next = ["**", "`", "*"].iter().filter_map(|m| rest.find(m).map(|p| (p, *m))).min_by_key(|x| (x.0, std::cmp::Reverse(x.1.len())));
             match next {
                 Some((p, m)) if rest[p + m.len()..].contains(m) => {
-                    job.append(&rest[..p], 0.0, if heading { head.clone() } else { base.clone() });
+                    segs.push((&rest[..p], 0));
                     let after = &rest[p + m.len()..];
                     let end = after.find(m).unwrap();
-                    let f = match m {
-                        "**" => strong.clone(),
-                        "`" => code.clone(),
-                        _ => em.clone(),
-                    };
-                    job.append(&after[..end], 0.0, f);
+                    segs.push((&after[..end], match m {
+                        "**" => 1,
+                        "`" => 2,
+                        _ => 3,
+                    }));
                     rest = &after[end + m.len()..];
                 }
                 _ => {
-                    job.append(rest, 0.0, if heading { head.clone() } else { base.clone() });
+                    segs.push((rest, 0));
                     rest = "";
                 }
             }
+        }
+        if crate::bidi::has_rtl(body) {
+            rtl_paragraph(ui, &segs, &formats, width, indent, sz);
+            continue;
+        }
+        for (t, s) in segs {
+            job.append(t, 0.0, formats[s].clone());
         }
         let galley = ui.fonts_mut(|f| f.layout_job(job));
         ui.horizontal_top(|ui| {
@@ -1079,6 +1153,36 @@ pub fn markdown(ui: &mut Ui, src: &str, size: f32) {
                 ui.painter().circle_filled(pos2(r.left() + indent * 0.45, r.top() + sz * 0.62), (sz * 0.11).max(2.0), LEAF_DARK);
             }
             ui.add(Label::new(galley).selectable(true));
+        });
+    }
+}
+
+/// A paragraph with Arabic, Hebrew or another right-to-left script: wrapped, then each line put in the
+/// order it is read, and aligned to the right when the paragraph starts in such a script.
+fn rtl_paragraph(ui: &mut Ui, segs: &[(&str, usize)], formats: &[egui::text::TextFormat], width: f32, indent: f32, sz: f32) {
+    use egui::text::LayoutJob;
+    let plain: String = segs.iter().map(|s| s.0).collect();
+    let rtl = crate::bidi::starts_rtl(&plain);
+    let chars: Vec<(char, usize)> = segs.iter().flat_map(|(t, s)| t.chars().map(move |c| (c, *s))).collect();
+    let max = (width - indent).max(20.0);
+    let lines = crate::bidi::wrap(&chars, max, |t, s| ui.fonts_mut(|f| f.layout_no_wrap(t.to_string(), formats[s].font_id.clone(), Color32::BLACK)).size().x);
+    for (n, line) in lines.iter().enumerate() {
+        let mut job = LayoutJob::default();
+        for p in crate::bidi::visual(line, rtl) {
+            job.append(&p.text, 0.0, formats[p.style].clone());
+        }
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        let layout = if rtl { Layout::right_to_left(Align::TOP) } else { Layout::left_to_right(Align::TOP) };
+        ui.allocate_ui_with_layout(vec2(width, galley.size().y), layout, |ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            if indent > 0.0 {
+                let (r, _) = ui.allocate_exact_size(vec2(indent, sz * 1.2), Sense::hover());
+                if n == 0 {
+                    let x = if rtl { r.right() - indent * 0.45 } else { r.left() + indent * 0.45 };
+                    ui.painter().circle_filled(pos2(x, r.top() + sz * 0.62), (sz * 0.11).max(2.0), LEAF_DARK);
+                }
+            }
+            ui.add(Label::new(galley).selectable(false));
         });
     }
 }

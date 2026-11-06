@@ -4,6 +4,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod analytics;
 mod app;
+mod bidi;
+mod rtl_edit;
 mod cli;
 mod deck;
 mod latex;

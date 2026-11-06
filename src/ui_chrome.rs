@@ -228,6 +228,7 @@ impl App {
                         self.act(ui, Icon::White, self.screen == Screen::White, Action::Whiteboard);
                         self.act(ui, Icon::Freeze, self.frozen.is_some(), Action::Freeze);
                         divider(ui);
+                        self.note_buttons(ui);
                         if w > 960.0 {
                             self.ink_group(ui);
                         } else {
@@ -603,6 +604,20 @@ impl App {
         }
     }
 
+    /// Edit notes, then a tick to save or a cross to cancel, in the same place.
+    fn note_buttons(&mut self, ui: &mut Ui) {
+        if self.note_draft.is_some() {
+            if icon_button(ui, Icon::Check, true, "Save notes").clicked() {
+                self.save_note_draft();
+            }
+            if icon_button(ui, Icon::Close, false, "Cancel, keep the notes as they were").clicked() {
+                self.note_draft = None;
+            }
+        } else {
+            self.act(ui, Icon::Note, false, Action::EditNotes);
+        }
+    }
+
     /// The current slide number. Click it, type a number, press Enter.
     fn slide_box(&mut self, ui: &mut Ui) {
         let id = sid("slide-number");
@@ -767,6 +782,7 @@ impl App {
                 self.save_layout();
                 ui.close();
             }
+            self.item(ui, "Edit notes for this slide", Action::EditNotes);
             ui.separator();
             self.item(ui, "Contents and bookmarks", Action::Outline);
             self.item(ui, "Search", Action::Search);

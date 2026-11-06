@@ -311,7 +311,7 @@ impl App {
             ui.add_space(4.0);
             CollapsingHeader::new(strong("Required LaTeX packages", 14.5)).id_salt(("settings", "Required LaTeX packages")).default_open(false).open(force).show(ui, |ui| self.required_packages(ui));
             group(ui, "Speaker notes", false, &mut |ui| {
-                let place = self.deck_path.as_ref().map(|p| p.with_extension("notes.md"));
+                let place = self.deck_path.as_ref().map(|p| crate::notes::notes_file(p));
                 ui.label(RichText::new("TeXora shows notes from the PDF's notes pages, from \\note{} in the LaTeX source, or from a Markdown file beside the presentation with one ## Slide N section per slide. Write that file in any text editor; TeXora reads it when the presentation opens.").size(12.5));
                 match place {
                     Some(p) => {

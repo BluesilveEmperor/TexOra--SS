@@ -1,23 +1,46 @@
 # Changelog
 
-What changed in each version of TeXora. The newest is first.
+All notable changes to TeXora. The newest version is first.
+
+## 1.1.0
+
+### New
+
+- Added Edit Note feature.
+- Edit the notes of any slide in the notes panel: press **E** or click the edit button.
+- Save with the tick button or **Cmd/Ctrl+Enter**; cancel with the cross or **Esc**.
+- Notes file is saved in the same folder as the opened presentation, using the presentation's filename followed by `.note.md`.
+- **Write notes** button on slides that have no notes yet.
+- Notes can be written in any language: Arabic, Chinese, Japanese, Korean and more.
+- Arabic notes read right to left, with words, numbers and punctuation in the right order.
+- Typing Arabic in the note editor runs from the right edge, with words in reading order.
+- Emoji show in colour.
+
+### Fixed
+
+- Text in Arabic, Chinese, Japanese, Korean and emoji no longer shows as empty boxes.
+- Notes files saved as UTF-16 (for example by Windows Notepad) or in older encodings now open correctly.
 
 ## 1.0.1
 
-- **Update notices.** TeXora now tells you by itself when a new version is out: a small notice appears
-  in the lower right corner, without clicking anything. **See what's new** shows the changes and a
-  download for your computer (the Mac disk image, the Windows installer or the Linux package),
-  **Later** hides it until the next start, and **Skip this version** hides it for good. TeXora looks
-  when it starts and again every few hours while it stays open. The notice never covers a talk: it
-  waits while the audience window is open. **? > Check for updates** works as before.
-- **Recent files: the bin button works.** Clicking the bin beside a recent file on Home removes it from
-  the list straight away. Before, the button flickered and the click did nothing.
-- **New LaTeX presentation is no longer part of the free TeXora.** The card on Home is shown switched
-  off, and the menu item and the `--new` and `--template` command-line options are gone. Opening,
-  compiling and presenting your own `.tex` files works as before.
+### New
+
+- Update notice appears by itself when a new version is out.
+- The notice offers **See what's new**, **Later** and **Skip this version**.
+- The update box offers the download for your computer.
+- TeXora checks for updates at start and every few hours while open.
+
+### Fixed
+
+- The bin button in **Recent files** now removes the file at once, without flickering.
+
+### Changed
+
+- **New LaTeX presentation** on Home is switched off.
 
 ## 1.0.0
 
-- First public release: presenter and audience views, LaTeX Beamer compiling, speaker notes, drawing,
-  laser pointer, zoom, bookmarks, contents and search, analytics, and installers for macOS, Windows and
-  Linux.
+- First public release.
+- Presenter and audience views, LaTeX Beamer compiling and speaker notes.
+- Drawing tools, laser pointer, zoom, bookmarks, contents, search and analytics.
+- Installers for macOS, Windows and Linux.

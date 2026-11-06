@@ -196,6 +196,7 @@ impl App {
 
     /// Everything a tab must keep before it goes away.
     pub fn save_open_work(&mut self) {
+        self.save_note_draft();
         if self.notes_dirty.is_some() {
             self.save_notes();
         }

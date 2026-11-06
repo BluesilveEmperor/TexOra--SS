@@ -211,12 +211,31 @@ jobs:
           | Debian, Ubuntu (x64) | [texora_${V}_amd64.deb](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/texora_${V}_amd64.deb) | [tar.gz](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/TeXora-$V-linux-x64.tar.gz) |
           | Debian, Ubuntu (arm64) | [texora_${V}_arm64.deb](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/texora_${V}_arm64.deb) | [tar.gz](https://github.com/$GITHUB_REPOSITORY/releases/download/v$V/TeXora-$V-linux-arm64.tar.gz) |
 
-          On macOS, open the disk image and drag TeXora to Applications. The first time, right-click it and
-          choose Open, because it is not signed by a paid Apple certificate. Windows may also warn about an
-          unknown publisher. To compile .tex files, install a TeX distribution (MacTeX, MiKTeX or TeX Live).
+          <details>
+          <summary>Opening TeXora for the first time</summary>
+
+          **macOS.** Open the disk image and drag TeXora to Applications. TeXora is signed ad hoc, not with
+          a paid Apple Developer ID, so macOS blocks it the first time:
+
+          - macOS 15 Sequoia and later: open TeXora once and click Done. Then go to System Settings >
+            Privacy & Security, find the line saying TeXora was blocked and click Open Anyway.
+          - macOS 14 Sonoma and earlier: right-click TeXora and choose Open.
+          - Or run this in Terminal: xattr -dr com.apple.quarantine /Applications/TeXora.app
+
+          **Windows.** Run the setup program. If Windows warns about an unknown publisher, click More info,
+          then Run anyway.
+
+          **Linux.** Install the package for your computer, for example
+          sudo apt install ./texora_${V}_amd64.deb
+
+          To compile .tex files, install a TeX distribution: MacTeX on macOS, MiKTeX or TeX Live on
+          Windows, TeX Live on Linux. More details are in the
+          [README](https://github.com/$GITHUB_REPOSITORY#download-and-install).
 
           Every package was built and run on a real machine before this release; see VALIDATION.txt.
           Checksums are in SHA256SUMS.txt.
+
+          </details>
           EOF
       - name: Publish
         env:

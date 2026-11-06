@@ -55,7 +55,9 @@ Turn the mouse wheel over a slide, or pinch on a trackpad, to zoom around the po
 
 ## Speaker notes
 
-Notes come from the notes pages in your PDF, from `\note{}` in your LaTeX, or from a Markdown file beside the presentation, named like it and ending in `.notes.md` (Settings > Speaker notes shows where). In that file, each `## Slide N` heading starts a slide's notes; write it in any text editor. The View menu chooses which notes are shown. Text notes support **bold**, *emphasis*, lists and headings. To make PDF notes pages, add this to your Beamer preamble:
+Notes come from the notes pages in your PDF, from `\note{}` in your LaTeX, or from a notes file in the same folder as the presentation, named after it: for `Lecture.pdf` it is `Lecture.note.md` (Settings > Speaker notes shows the exact file). Notes saved as `Lecture.notes.md` by earlier versions are read too. In that file, each `## Slide N` heading starts a slide's notes.
+
+To edit the current slide's notes, press the notes button beside the pointer, or **E**. Type, then press the tick or **Cmd/Ctrl+Enter** to save, or the cross or **Esc** to cancel. On a slide without notes, **Write notes** does the same. Your notes are saved in that file (for `Lecture.pdf`, `Lecture.note.md` beside it) and open with the presentation next time. Saving with no text brings back the notes from the PDF or source. Notes can be in any language; Arabic is typed and shown right to left. They are saved as UTF-8. The View menu chooses which notes are shown. Text notes support **bold**, *emphasis*, lists and headings. To make PDF notes pages, add this to your Beamer preamble:
 
 ```
 \setbeameroption{show notes on second screen=right}

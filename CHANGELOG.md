@@ -2,6 +2,26 @@
 
 All notable changes to TeXora. The newest version is first.
 
+## 1.4.1
+
+### Fixed
+
+- In the LaTeX studio, the slide and notes preview keeps the width you drag it to, instead of jumping back when you let go.
+- The black line at the right edge of the notes page is gone, in the presenter screen and the LaTeX studio; a faint frame shows the page's edge instead.
+- The presenter screen no longer leaves an empty grey strip beside the notes page: the Notes column fits the page, and the slides take the rest.
+- In the LaTeX studio, a header wider than the preview no longer pushes the slide past the window's edge.
+
+### Improved
+
+- Double-click the edge between the source and the preview to split them half and half again.
+- The LaTeX studio's preview grows with its width: on a wide panel the notes move beside the slide, so the slide can use the full height.
+- The notes page in the studio gets a box of its own shape, so it fills it with no empty margin.
+- In the presenter screen, widening the slide column makes the current slide bigger; in the large slide view, the notes page and the next slide share their column at the same width.
+
+### New
+
+- **Wrap text** in the LaTeX studio wraps long lines at the editor's width; line numbers still count real lines.
+
 ## 1.4.0
 
 ### Improved

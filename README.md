@@ -303,6 +303,7 @@ notes on the right, and compile messages along the bottom.
 | **Live** | Saves and rebuilds shortly after you stop typing. |
 | **Rebuild on save** | Rebuilds each time the file is saved, here or in your own editor. |
 | **Follow cursor** | Shows the slide for the line the cursor is on. |
+| **Wrap text** | Wraps long lines at the editor's width instead of scrolling sideways. |
 | **Present** | Back to the presenter view. |
 
 - **Comment lines**: **Cmd/Ctrl+/** comments out the line the cursor is on, or every selected line,
@@ -313,6 +314,8 @@ notes on the right, and compile messages along the bottom.
 - **Problems, Packages, Full log**: the panel along the bottom. Errors show their line number; click
   one to go there. The panel's buttons wrap long lines, copy the text, and hide or show the panel. Drag
   its top edge to resize it.
+- Drag the edge between the source and the preview to make either wider; double-click it to split them
+  half and half again.
 - If a presentation does not compile when you open it, it opens in the studio with the problems listed.
 - Linking slides and source uses SyncTeX, which comes with TeX Live, MacTeX and MiKTeX.
 

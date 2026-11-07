@@ -12,6 +12,27 @@ pub fn auto_col(width: f32, height: f32, aspect: f32, gap: f32) -> f32 {
     ((height * aspect + gap) / width.max(1.0)).clamp(0.45, 0.85)
 }
 
+/// Share of the presenter's width for the Notes column when no divider has been moved. A PDF notes
+/// page (`notes_aspect`) gets just the width its full height needs, so its card has no empty strip,
+/// as long as the slide column keeps `slides_w`; whatever is left goes to the slides, which grow into
+/// it. Written notes keep what is left once the slide column fits.
+pub fn presenter_auto_col(inner_w: f32, notes_h: f32, notes_aspect: Option<f32>, slides_w: f32, gap: f32) -> f32 {
+    let inner_w = inner_w.max(1.0);
+    let notes_w = match notes_aspect {
+        Some(a) => (notes_h * a + 8.0).min(inner_w - slides_w - gap),
+        None => inner_w - slides_w - gap,
+    };
+    ((notes_w + gap / 2.0) / inner_w).clamp(0.4, 0.8)
+}
+
+/// Share of the slide column's height for the current slide when no divider has been moved: at least
+/// half, and more when the column is wide enough for the current slide to fill its width, so widening
+/// the column makes the current slide bigger. The next slide keeps at least 30%.
+pub fn current_row(col_w: f32, col_h: f32, aspect: f32, chrome: f32, gap: f32) -> f32 {
+    let fit_h = (col_w - 28.0).max(1.0) / aspect.max(0.1) + chrome;
+    ((fit_h + gap / 2.0) / col_h.max(1.0)).clamp(0.5, 0.7)
+}
+
 /// What the pointer did to a divider this frame.
 pub struct Handle {
     pub delta: Vec2,
@@ -572,9 +593,11 @@ impl App {
             if large {
                 auto_col(inner_w, body_bottom - body_top - nav_h, aspect, gap + tools_w)
             } else {
-                // The notes take what is left once the right column fits the current and next slide.
+                // The slide column needs the width of the current and next slide stacked; the notes
+                // page gets what its height needs and the slides take the rest.
                 let slide_w = ((body_bottom - body_top - 10.0 * k - gap) / 2.0 - 14.0 * k - 34.0) * aspect + 28.0;
-                (1.0 - (slide_w + gap) / inner_w.max(1.0)).clamp(0.45, 0.75)
+                let notes_h = body_bottom - nav_h - body_top - 14.0 * k - 30.0;
+                presenter_auto_col(inner_w, notes_h, self.notes_page_aspect(), slide_w, gap)
             }
         });
         let div_x = full.left() + pad + inner_w * split;
@@ -585,7 +608,16 @@ impl App {
         // Right column: notes (large slide) or the current slide on top, the next slide below. The
         // next slide's card fits its picture unless that divider has been moved.
         let next_fit = (col.width() - 28.0) / aspect + label + 34.0;
-        let auto_row = if large { (1.0 - (next_fit + gap) / col.height().max(1.0)).clamp(0.3, 0.7) } else { 0.5 };
+        // With the large slide, a PDF notes page and the next slide share the column at the same width.
+        let auto_row = if large {
+            match self.notes_page_aspect() {
+                Some(na) => {
+                    let notes_fit = (col.width() - 8.0) / na + label + 10.0;
+                    (notes_fit / (notes_fit + next_fit)).clamp(0.3, 0.7)
+                }
+                None => (1.0 - (next_fit + gap) / col.height().max(1.0)).clamp(0.3, 0.7),
+            }
+        } else { current_row(col.width(), col.height(), aspect, label + 34.0, gap) };
         let row_share = (if large { self.st.layout.large_row } else { self.st.layout.presenter_row }).unwrap_or(auto_row);
         let mid = col.top() + col.height() * row_share;
         let top_box = Rect::from_min_max(col.min, pos2(col.right(), mid - gap / 2.0));
@@ -909,35 +941,52 @@ impl App {
         }
     }
 
-    pub fn notes_panel(&mut self, ui: &mut Ui, rect: Rect, s: f32) {
+    /// What the notes area shows for the current slide: the PDF notes page or written notes.
+    fn notes_mode(&self) -> NotesView {
         let frame = self.frame();
-        let sl = self.deck.slides.get(self.cur).cloned();
-        let has_pdf = sl.as_ref().and_then(|x| x.notes).is_some();
-        let text = self.note_for(frame);
-        if self.note_draft.is_some() {
-            self.note_editor(ui, rect, s);
-            return;
-        }
-        let mode = match self.notes_view {
+        let has_pdf = self.deck.slides.get(self.cur).and_then(|x| x.notes).is_some();
+        match self.notes_view {
             NotesView::Auto if self.notes.contains_key(&frame) || self.note_pending.contains_key(&frame) => NotesView::Text,
             NotesView::Auto if has_pdf => NotesView::Pdf,
             NotesView::Auto => NotesView::Text,
             NotesView::Pdf if !has_pdf => NotesView::Text,
             m => m,
-        };
+        }
+    }
+
+    /// Width over height of the PDF notes page the notes area is showing now, or None when it shows
+    /// written notes (or the note editor), which can take any shape.
+    pub fn notes_page_aspect(&self) -> Option<f32> {
+        if self.note_draft.is_some() || self.notes_mode() != NotesView::Pdf {
+            return None;
+        }
+        let (p, reg) = self.deck.slides.get(self.cur)?.notes?;
+        let (pw, ph) = self.doc.as_ref().map(|d| (d.pages[p].width, d.pages[p].height)).unwrap_or((4.0, 3.0));
+        Some((if reg == Region::Full { pw / ph } else { pw / 2.0 / ph }).max(0.1))
+    }
+
+    pub fn notes_panel(&mut self, ui: &mut Ui, rect: Rect, s: f32) {
+        let frame = self.frame();
+        let sl = self.deck.slides.get(self.cur).cloned();
+        let text = self.note_for(frame);
+        if self.note_draft.is_some() {
+            self.note_editor(ui, rect, s);
+            return;
+        }
+        let mode = self.notes_mode();
         match mode {
             NotesView::Pdf => {
                 let (p, reg) = sl.and_then(|x| x.notes).unwrap();
-                let (pw, ph) = self.doc.as_ref().map(|d| (d.pages[p].width, d.pages[p].height)).unwrap_or((4.0, 3.0));
-                let a = if reg == Region::Full { pw / ph } else { pw / 2.0 / ph };
+                let a = self.notes_page_aspect().unwrap_or(4.0 / 3.0);
+                // Centred across the box, so a box wider than the page has no empty strip on one side.
                 let r = fit(rect, a, true);
-                let r = r.translate(vec2(rect.left() - r.left(), 0.0));
                 // The notes page has its own zoom, for reading it from further away.
                 let uv = uv_rect(self.notes_zoom);
                 self.paint_page(ui, r, p, reg, uv);
                 let resp = ui.interact(r, sid("notes-page"), Sense::click_and_drag());
                 pan_zoom(ui, &resp, r, &mut self.notes_zoom, &mut self.zoom_changed);
-                ui.painter().vline(r.right(), r.y_range(), Stroke::new(1.5, Color32::BLACK));
+                // A faint frame shows where the notes page ends, the same as around the slide.
+                ui.painter().rect_stroke(r, 0.0, Stroke::new(1.0, LINE), StrokeKind::Outside);
             }
             _ => {
                 let inner = rect.shrink(14.0 * s.max(0.6));
@@ -1283,7 +1332,12 @@ impl App {
         self.nav_row(ui, Rect::from_min_max(pos2(left.left(), left.bottom()), pos2(left.right(), body.bottom())), s);
 
         let next_h = (right.height() * 0.32).min((right.width() - 28.0) / aspect) + label + 34.0;
-        let row = self.st.layout.split_row.unwrap_or(1.0 - (next_h + 14.0) / right.height().max(1.0));
+        // A PDF notes page gets the height that lets it fill the column's width, when there is room.
+        let auto_row = match self.notes_page_aspect() {
+            Some(na) => (((right.width() - 8.0) / na + label + 6.0) / right.height().max(1.0)).min(1.0 - (next_h + 14.0) / right.height().max(1.0)).max(0.4),
+            None => 1.0 - (next_h + 14.0) / right.height().max(1.0),
+        };
+        let row = self.st.layout.split_row.unwrap_or(auto_row.clamp(0.3, 0.8));
         let cut = right.top() + right.height() * row;
         let notes = Rect::from_min_max(right.min, pos2(right.right(), cut));
         let next = Rect::from_min_max(pos2(right.left(), cut + 14.0), right.max);
@@ -1668,6 +1722,37 @@ pub fn engine_combo(ui: &mut Ui, e: &mut Engine) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The case from the report: a 4:3 notes page in a wide window left an empty strip beside it.
+    #[test]
+    fn notes_column_fits_its_page_and_the_slides_take_the_rest() {
+        let (inner_w, notes_h, slides_w, gap) = (1300.0, 560.0, 330.0, 14.0);
+        let share = presenter_auto_col(inner_w, notes_h, Some(4.0 / 3.0), slides_w, gap);
+        let notes_w = share * inner_w - gap / 2.0;
+        assert!((notes_w - (notes_h * 4.0 / 3.0 + 8.0)).abs() < 1.0, "notes column {notes_w} fits the page");
+        assert!(inner_w * (1.0 - share) - gap / 2.0 > slides_w, "slides get the rest");
+        // Narrow window: the slide column keeps its width and the notes page shrinks to fit.
+        let share = presenter_auto_col(900.0, notes_h, Some(4.0 / 3.0), slides_w, gap);
+        assert!(900.0 * (1.0 - share) >= slides_w + gap / 2.0 - 1.0 || share <= 0.4 + 1e-6);
+        // Written notes: as before, what is left once the slides fit.
+        let share = presenter_auto_col(inner_w, notes_h, None, slides_w, gap);
+        assert!((inner_w * (1.0 - share) - gap / 2.0 - slides_w).abs() < 1.0);
+    }
+
+    #[test]
+    fn a_wider_slide_column_gives_a_bigger_current_slide() {
+        let (h, a, chrome, gap) = (700.0, 4.0 / 3.0, 48.0, 14.0);
+        let mut last = 0.0;
+        for w in [250.0, 350.0, 450.0, 550.0, 650.0, 800.0] {
+            let row = current_row(w, h, a, chrome, gap);
+            assert!((0.5..=0.7).contains(&row));
+            // The current slide's picture: as wide as fits in its share of the height.
+            let cur = fit(Rect::from_min_size(Pos2::ZERO, vec2(w - 28.0, h * row - gap / 2.0 - chrome)), a, false);
+            assert!(cur.width() + 0.5 >= last, "current slide shrank at column width {w}");
+            last = cur.width();
+        }
+        assert!(current_row(650.0, h, a, chrome, gap) > 0.5, "a wide column gives the current slide more than half");
+    }
 
     /// Long notes wrap at the panel's width and never push it wider.
     #[test]

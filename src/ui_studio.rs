@@ -110,6 +110,9 @@ impl App {
                 ui.checkbox(&mut self.st.live_edit, "Live").on_hover_text("Save and rebuild shortly after you stop typing");
                 ui.checkbox(&mut self.st.auto_compile, "Rebuild on save");
                 ui.checkbox(&mut self.follow_cursor, "Follow cursor").on_hover_text("Show the slide for the line you are on");
+                if ui.checkbox(&mut self.st.editor_wrap, "Wrap text").on_hover_text("Wrap long lines at the editor's width instead of scrolling sideways").changed() {
+                    self.save_layout();
+                }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if labelled_button(ui, Icon::Presenter, "Present", false).clicked() {
                         self.view = View::Presenter;
@@ -122,8 +125,29 @@ impl App {
         let log = Panel::bottom("studio-log").resizable(self.log_open).frame(Frame::new().fill(SURFACE).inner_margin(Margin::symmetric(10, 4)));
         let log = if self.log_open { log.default_size(170.0).size_range(90.0..=max) } else { log.exact_size(38.0) };
         log.show(ui, |ui| self.log_panel(ui));
-        Panel::right("studio-preview").resizable(true).default_size(ui.available_width() * 0.5).size_range(240.0..=(ui.available_width() - 240.0).max(260.0)).show(ui, |ui| self.preview_panel(ui));
+        // The preview's width is kept by TeXora, not by the panel itself: the panel's own resizing put
+        // it back where it was as soon as the mouse button was let go.
+        let avail = ui.available_width();
+        let max_w = (avail - 240.0).max(260.0);
+        let w = (self.st.layout.studio_col.unwrap_or(0.5) * avail).clamp(240.0, max_w);
+        let edge = Panel::right("studio-preview").resizable(false).exact_size(w).show(ui, |ui| self.preview_panel(ui)).response.rect;
         CentralPanel::default().frame(Frame::new().fill(BG).inner_margin(Margin::symmetric(8, 4))).show(ui, |ui| self.editor_panel(ui));
+        // Drag the edge between the editor and the preview; double-click it for half and half again.
+        let grip = Rect::from_min_max(pos2(edge.left() - 4.0, edge.top()), pos2(edge.left() + 4.0, edge.bottom()));
+        let resp = ui.interact(grip, sid("studio-divider"), Sense::click_and_drag()).on_hover_cursor(CursorIcon::ResizeHorizontal);
+        if resp.hovered() || resp.dragged() {
+            ui.painter().vline(edge.left(), edge.y_range(), Stroke::new(2.0, LEAF));
+        }
+        if resp.dragged() {
+            let to = (w - resp.drag_delta().x).clamp(240.0, max_w);
+            self.st.layout.studio_col = Some(to / avail.max(1.0));
+        }
+        if resp.double_clicked() {
+            self.st.layout.studio_col = None;
+        }
+        if resp.drag_stopped() || resp.double_clicked() {
+            self.save_layout();
+        }
     }
 
     fn log_panel(&mut self, ui: &mut Ui) {
@@ -268,13 +292,16 @@ impl App {
             TextEdit::store_state(ui.ctx(), id, st);
         }
         let errors: Vec<usize> = self.problems.iter().filter(|p| p.is_error).filter_map(|p| p.line).collect();
-        ScrollArea::both().id_salt("editor-scroll").auto_shrink([false, false]).show(ui, |ui| {
+        let wrap = self.st.editor_wrap;
+        let area = if wrap { ScrollArea::vertical() } else { ScrollArea::both() };
+        // Each mode keeps its own scroll position, so switching does not leave the view off to the side.
+        area.id_salt(("editor-scroll", wrap)).auto_shrink([false, false]).show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 let (g, _) = ui.allocate_exact_size(vec2(gutter, row_h * lines as f32 + 8.0), Sense::hover());
-                let mut layouter = |ui: &Ui, buf: &dyn TextBuffer, _w: f32| {
+                let mut layouter = |ui: &Ui, buf: &dyn TextBuffer, w: f32| {
                     let mut job = highlight(buf.as_str(), size);
-                    job.wrap.max_width = f32::INFINITY;
+                    job.wrap.max_width = if wrap { w.max(size * 4.0) } else { f32::INFINITY };
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
                 let out = TextEdit::multiline(&mut src.text)
@@ -286,21 +313,28 @@ impl App {
                     .margin(Margin::ZERO)
                     .layouter(&mut layouter)
                     .show(ui);
-                // Numbers follow the rows actually drawn, so they stay level with the text.
+                // Numbers follow the rows actually drawn, so they stay level with the text. A wrapped
+                // line takes several rows but gets one number, on its first row.
                 let clip = ui.clip_rect();
-                for (n, row) in out.galley.rows.iter().enumerate() {
+                let mut line_y = Vec::with_capacity(lines);
+                let mut starts_line = true;
+                for row in out.galley.rows.iter() {
                     let y = out.galley_pos.y + row.pos.y;
-                    if y + row_h < clip.top() || y > clip.bottom() {
-                        continue;
+                    if starts_line {
+                        line_y.push(y);
+                        let n = line_y.len();
+                        if y + row_h >= clip.top() && y <= clip.bottom() {
+                            let c = if errors.contains(&n) {
+                                BAD
+                            } else if n == src.cursor_line {
+                                INK
+                            } else {
+                                Color32::from_gray(165)
+                            };
+                            ui.painter().text(pos2(g.right() - 10.0, y), Align2::RIGHT_TOP, n.to_string(), FontId::monospace(size - 1.0), c);
+                        }
                     }
-                    let c = if errors.contains(&(n + 1)) {
-                        BAD
-                    } else if n + 1 == src.cursor_line {
-                        INK
-                    } else {
-                        Color32::from_gray(165)
-                    };
-                    ui.painter().text(pos2(g.right() - 10.0, y), Align2::RIGHT_TOP, (n + 1).to_string(), FontId::monospace(size - 1.0), c);
+                    starts_line = row.ends_with_newline;
                 }
                 if out.response.changed() {
                     src.dirty = true;
@@ -315,7 +349,7 @@ impl App {
                 }
                 if let Some(l) = goto {
                     out.response.request_focus();
-                    let y = g.top() + (l.saturating_sub(1)) as f32 * row_h;
+                    let y = line_y.get(l.saturating_sub(1)).copied().unwrap_or(g.top() + (l.saturating_sub(1)) as f32 * row_h);
                     ui.scroll_to_rect(Rect::from_min_size(pos2(g.left(), y), vec2(10.0, row_h)), Some(Align::Center));
                 }
             });
@@ -331,8 +365,11 @@ impl App {
     }
 
     fn preview_panel(&mut self, ui: &mut Ui) {
+        // The panel's own edges, taken before anything is drawn: a header wider than the panel would
+        // otherwise stretch the space and push the slide past the window's edge.
+        let panel = ui.max_rect();
         ui.add_space(4.0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let c = ui.ctx().clone();
             if ui.button("<").clicked() {
                 self.run(Action::Prev, &c);
@@ -348,14 +385,14 @@ impl App {
                 ui.label(RichText::new("Double-click for source. Wheel to zoom.").color(MUTED).size(12.5));
             }
         });
-        // The slide on top and its notes below, in two boxes of the same size.
-        let area = ui.available_rect_before_wrap().shrink(4.0);
-        let caption = 22.0;
-        let half = Rect::from_min_max(area.min, pos2(area.right(), area.top() + (area.height() - caption) / 2.0));
-        let r = fit(half, self.deck.aspect.max(0.1), true);
+        // The slide on top, as wide as the panel allows at its own shape, and its notes below in whatever
+        // height is left. The notes keep at least a quarter of the height, so a wide panel cannot push them out.
+        let top = ui.cursor().top();
+        let area = Rect::from_min_max(pos2(panel.left(), top), pos2(panel.right(), panel.bottom().max(top + 200.0))).shrink(4.0);
+        let (r, notes) = preview_layout(area, self.deck.aspect.max(0.1), self.notes_page_aspect());
         let idx = self.cur;
         let Some(sl) = self.deck.slides.get(idx).cloned() else { return };
-        let notes = r.translate(vec2(0.0, r.height() + caption));
+        let caption = CAPTION;
         ui.painter().text(pos2(notes.left(), notes.top() - caption / 2.0), Align2::LEFT_CENTER, "Notes", FontId::proportional(13.0), MUTED);
         ui.painter().rect_filled(notes, 0.0, Color32::from_rgb(228, 228, 228));
         ui.painter().rect_stroke(notes, 0.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
@@ -390,6 +427,58 @@ impl App {
             }
         }
     }
+}
+
+/// Height of the "Notes" caption between the slide and its notes.
+const CAPTION: f32 = 22.0;
+
+/// Where the studio preview draws the slide inside `area`: the full width of the panel at the slide's
+/// own shape, unless that would leave the notes below less than a quarter of the height (and at least
+/// 110 points); then the slide is shrunk, still at its own shape, and centred.
+pub fn slide_box(area: Rect, aspect: f32) -> Rect {
+    let notes_min = (area.height() * 0.25).max(110.0);
+    let max_h = (area.height() - CAPTION - notes_min).max(60.0);
+    fit(Rect::from_min_size(area.min, vec2(area.width(), max_h)), aspect, true)
+}
+
+/// The slide and notes boxes of the studio preview. Notes go below the slide, or beside it when the
+/// panel is wide enough that this makes the slide clearly bigger; either way the slide keeps its shape
+/// and stays inside `area`. With a PDF notes page (`notes_aspect`, its width over height) the notes box
+/// takes that page's shape, as large as the space left allows, so the page fills it with no empty
+/// margin; written notes take all of the space left.
+pub fn preview_layout(area: Rect, aspect: f32, notes_aspect: Option<f32>) -> (Rect, Rect) {
+    let below = slide_box(area, aspect);
+    let gap = 12.0;
+    let notes_w = (area.width() * 0.28).max(220.0);
+    let side = fit(Rect::from_min_size(area.min, vec2((area.width() - notes_w - gap).max(60.0), area.height())), aspect, true);
+    let (slide, space) = if side.width() > below.width() * 1.08 {
+        let space = Rect::from_min_max(pos2(side.right() + gap, area.top() + CAPTION), pos2(area.right(), side.bottom().max(area.top() + CAPTION + 120.0)));
+        let space = match notes_aspect {
+            Some(_) => Rect::from_min_max(space.min, pos2(space.right(), area.bottom().max(space.top() + 120.0))),
+            None => space,
+        };
+        (side, space)
+    } else {
+        // A notes page under the slide shares the height with it: as wide as the slide when both fit,
+        // otherwise the slide gives up to a quarter of its width so the page stays readable.
+        let below = match notes_aspect {
+            Some(na) => {
+                let shared = (area.height() - CAPTION) / (1.0 / aspect + 1.0 / na.max(0.1));
+                let w = shared.max(below.width() * 0.75).min(below.width());
+                Rect::from_min_size(pos2(area.center().x - w / 2.0, area.top()), vec2(w, w / aspect))
+            }
+            None => below,
+        };
+        (below, Rect::from_min_max(pos2(below.left(), below.bottom() + CAPTION), pos2(below.right(), area.bottom().max(below.bottom() + CAPTION + 40.0))))
+    };
+    let notes = match notes_aspect {
+        Some(a) => {
+            let r = fit(space, a.max(0.1), true);
+            r.translate(vec2(space.left() - r.left(), 0.0))
+        }
+        None => space,
+    };
+    (slide, notes)
 }
 
 /// What the comment shortcuts do to the lines.
@@ -516,6 +605,82 @@ mod tests {
         let src = "% c\n\\begin{frame}{é}\nmath $x^2$ and 100\\% done é\n\\\\ end\n";
         let j = highlight(src, 12.0);
         assert_eq!(j.text, src);
+    }
+
+    #[test]
+    fn preview_grows_with_the_panel_and_keeps_the_slide_shape() {
+        let aspect = 4.0 / 3.0;
+        let mut last = 0.0;
+        for w in [300.0, 500.0, 700.0, 900.0] {
+            let area = Rect::from_min_size(pos2(10.0, 20.0), vec2(w, 900.0));
+            let r = slide_box(area, aspect);
+            assert!((r.width() / r.height() - aspect).abs() < 0.01, "shape kept at width {w}");
+            assert!(area.contains_rect(r), "slide not cropped at width {w}");
+            assert!(r.width() > last, "slide grows when the panel widens to {w}");
+            assert!(area.bottom() - r.bottom() - CAPTION >= 900.0 * 0.25 - 0.5, "notes keep a quarter");
+            last = r.width();
+        }
+        // Narrow panel: the slide uses all of the width.
+        let r = slide_box(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 900.0)), aspect);
+        assert!((r.width() - 400.0).abs() < 0.5);
+        // Very wide panel: limited by height, centred, still at its shape.
+        let area = Rect::from_min_size(Pos2::ZERO, vec2(2000.0, 600.0));
+        let r = slide_box(area, 16.0 / 9.0);
+        assert!((r.center().x - area.center().x).abs() < 0.5);
+        assert!((r.width() / r.height() - 16.0 / 9.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn wide_preview_puts_notes_beside_a_bigger_slide() {
+        let aspect = 4.0 / 3.0;
+        // Tall, narrow panel: notes below, slide as wide as the panel.
+        let tall = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 900.0));
+        let (s, n) = preview_layout(tall, aspect, None);
+        assert!(n.top() > s.bottom() && (s.width() - 400.0).abs() < 0.5);
+        // Wide, short panel: notes beside, and the slide is bigger than it would be with notes below.
+        let wide = Rect::from_min_size(Pos2::ZERO, vec2(1100.0, 560.0));
+        let (s, n) = preview_layout(wide, aspect, None);
+        assert!(n.left() > s.right(), "notes beside");
+        assert!(s.width() > slide_box(wide, aspect).width());
+        for r in [s, n] {
+            assert!(wide.contains_rect(r));
+        }
+        assert!((s.width() / s.height() - aspect).abs() < 0.01);
+        // Widening the panel never makes the slide smaller.
+        let mut last = 0.0;
+        for w in (300..1600).step_by(50) {
+            let (s, _) = preview_layout(Rect::from_min_size(Pos2::ZERO, vec2(w as f32, 560.0)), aspect, None);
+            assert!(s.width() + 0.5 >= last, "slide shrank at width {w}");
+            last = s.width();
+        }
+    }
+
+    #[test]
+    fn a_notes_page_gets_a_box_of_its_own_shape() {
+        // The case from the report: a 16:9 slide and notes page in a tall panel, where the space left
+        // under the slide is wider than the page needs.
+        let wide_slide = 16.0 / 9.0;
+        for (w, h) in [(560.0, 600.0), (560.0, 900.0), (400.0, 900.0), (1100.0, 560.0), (300.0, 1200.0)] {
+            let area = Rect::from_min_size(pos2(5.0, 40.0), vec2(w, h));
+            let (s, n) = preview_layout(area, wide_slide, Some(wide_slide));
+            assert!((n.width() / n.height() - wide_slide).abs() < 0.01, "notes box keeps the page shape at {w}x{h}");
+            assert!(area.contains_rect(n) && area.contains_rect(s), "both inside at {w}x{h}");
+            assert!(!n.intersects(s.shrink(0.5)), "no overlap at {w}x{h}");
+            assert!(n.width() > 60.0);
+            // Notes below start at the slide's left edge and are never wider than it.
+            if n.top() > s.bottom() {
+                assert!((n.left() - s.left()).abs() < 0.5 && n.width() <= s.width() + 0.5);
+            }
+        }
+        // Short of height: the slide gives a little width so the notes page is not tiny.
+        let area = Rect::from_min_size(Pos2::ZERO, vec2(600.0, 560.0));
+        let (s, n) = preview_layout(area, 4.0 / 3.0, Some(4.0 / 3.0));
+        assert!(n.width() > s.width() * 0.6, "notes {} vs slide {}", n.width(), s.width());
+        assert!(s.width() >= slide_box(area, 4.0 / 3.0).width() * 0.75 - 0.5);
+        // A 4:3 notes page under a 16:9 slide in a roomy panel: as wide as the slide.
+        let area = Rect::from_min_size(Pos2::ZERO, vec2(500.0, 1200.0));
+        let (s, n) = preview_layout(area, wide_slide, Some(4.0 / 3.0));
+        assert!((n.width() - s.width()).abs() < 0.5);
     }
 
     #[test]

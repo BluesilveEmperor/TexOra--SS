@@ -75,6 +75,7 @@ Open a `.tex` file, then press **Cmd/Ctrl+E**, the studio button in the toolbar,
 - Double-click a slide to find its source. Moving the cursor shows the matching slide (**Follow cursor**).
 - **Cmd/Ctrl+/** comments out the current or selected lines, or uncomments them if they all are. **Cmd/Ctrl+]** comments and **Cmd/Ctrl+[** uncomments. Change these in Settings.
 - The panel at the bottom holds problems, packages and the full log. Drag its top edge to resize it.
+- Drag the edge between the source and the preview to make either wider. Double-click it to split them half and half again.
 - **Check packages**, also in the Tools menu, lists anything your file needs that is missing, and how to get it. **Settings > Required LaTeX packages** shows the same list.
 - You can also keep editing in your own LaTeX editor: each time you save, the slides rebuild.
 

@@ -230,6 +230,8 @@ pub struct Layout {
     pub large_row: Option<f32>,
     pub split_col: Option<f32>,
     pub split_row: Option<f32>,
+    /// The LaTeX studio's slide and notes preview, as a share of the width beside the editor.
+    pub studio_col: Option<f32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -249,6 +251,8 @@ pub struct Settings {
     /// (and the slides rebuild). Off: they go into the .note.md file beside the presentation.
     pub notes_in_tex: bool,
     pub editor_size: f32,
+    /// The LaTeX studio's editor wraps long lines at its width instead of scrolling sideways.
+    pub editor_wrap: bool,
     /// Look for a newer version when TeXora starts.
     pub check_updates: bool,
     /// A newer version the speaker chose to skip: its update notice is not shown again.
@@ -272,6 +276,7 @@ impl Default for Settings {
             notes_size: 26.0,
             notes_in_tex: true,
             editor_size: 14.0,
+            editor_wrap: false,
             check_updates: true,
             skipped_update: String::new(),
             last_template: String::new(),

@@ -9,6 +9,7 @@ mod rtl_edit;
 mod cli;
 mod deck;
 mod latex;
+mod media;
 mod notes;
 mod pdf;
 mod selftest;
@@ -16,6 +17,7 @@ mod settings;
 mod syscheck;
 mod icons;
 mod tabs;
+mod templates;
 mod ui_chrome;
 mod ui_panels;
 mod ui_present;
@@ -60,6 +62,7 @@ impl eframe::App for Root {
         }
         a.duration_popup(&ctx);
         a.help_windows(&ctx);
+        a.template_picker(&ctx);
         a.audience_window(&ctx);
         a.screenshot_tick(&ctx);
     }
@@ -100,11 +103,14 @@ For testing and screenshots:
   --window <W>x<H>         start at this window size
   --script \"<steps>\"       feed in test input, for example \"w:500;k:ArrowRight\"
   --demo                   fill the analytics with invented numbers
+  --new <file.tex>         create a presentation from a Beamer template and open it
+  --template <name>        with --new: classic, midnight, minimal, conference, sunrise,
+                           motion, flipbook or media
 
 Full details: README.md, or ? > Documentation in the app.";
 
 fn parse_args() -> Result<Args, String> {
-    let mut a = Args { file: None, screenshot: None, view: None, goto: None, demo: false, script: vec![], window: None };
+    let mut a = Args { file: None, screenshot: None, view: None, goto: None, demo: false, new_deck: None, template: None, script: vec![], window: None };
     let mut it = std::env::args().skip(1);
     while let Some(x) = it.next() {
         if x == "--version" {
@@ -120,6 +126,8 @@ fn parse_args() -> Result<Args, String> {
             "--view" => a.view = Some(it.next().ok_or("--view needs a name")?),
             "--goto" => a.goto = it.next().and_then(|n| n.parse().ok()),
             "--demo" => a.demo = true,
+            "--new" => a.new_deck = it.next().map(PathBuf::from),
+            "--template" => a.template = it.next(),
             "--window" => {
                 a.window = it.next().and_then(|s| {
                     let (w, h) = s.split_once('x')?;

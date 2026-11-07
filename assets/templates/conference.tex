@@ -1,0 +1,97 @@
+%% TeXora template: Conference. Berlin theme in deep wine red, with section progress along the top.
+%% Change the colours on the \definecolor lines below; everything else follows them.
+% !TEX program = pdflatex
+\documentclass[aspectratio=169]{beamer}
+\usetheme{Berlin}
+\usepackage{amsmath}
+\definecolor{wine}{RGB}{128,24,48}
+\definecolor{winedark}{RGB}{78,14,30}
+\definecolor{sand}{RGB}{248,241,233}
+\setbeamercolor{structure}{fg=wine}
+\setbeamercolor{section in head/foot}{bg=winedark,fg=white}
+\setbeamercolor{subsection in head/foot}{bg=wine,fg=white}
+\setbeamercolor{author in head/foot}{bg=winedark,fg=white}
+\setbeamercolor{title in head/foot}{bg=wine,fg=white}
+\setbeamercolor{frametitle}{bg=wine,fg=white}
+\setbeamercolor{title}{bg=wine,fg=white}
+\setbeamercolor{block title}{bg=wine,fg=white}
+\setbeamercolor{block body}{bg=sand}
+\setbeamercolor{block title example}{bg=winedark,fg=white}
+\setbeamercolor{block body example}{bg=sand}
+\setbeamercolor{block title alerted}{bg=orange!80!black,fg=white}
+\setbeamercolor{block body alerted}{bg=orange!8}
+\setbeamertemplate{blocks}[rounded][shadow=true]
+\setbeamertemplate{navigation symbols}{}
+\setbeameroption{show notes on second screen=right}
+
+\title{Your Presentation Title}
+\subtitle{A short subtitle}
+\author{Your Name}
+\institute{Your Institution}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+  \note{Welcome everyone. Say who you are and what this talk covers.}
+\end{frame}
+
+\begin{frame}{Outline}
+  \tableofcontents
+  \note{Give the plan in one sentence.}
+\end{frame}
+
+\section{Introduction}
+\begin{frame}{Key Ideas}
+  \begin{itemize}
+    \item<1-> Your first point
+    \item<2-> Your second point, shown on the next step
+    \item<3-> Your third point
+  \end{itemize}
+  \vspace{0.6em}
+  \begin{block}<3->{Takeaway}
+    One sentence the audience should remember.
+  \end{block}
+  \note{Each point appears on its own step. Pause after the takeaway.}
+\end{frame}
+
+\section{Details}
+\begin{frame}{Two Columns}
+  \begin{columns}[T]
+    \begin{column}{0.47\textwidth}
+      \begin{exampleblock}{Example}
+        A short example, a result or a figure.
+      \end{exampleblock}
+    \end{column}
+    \begin{column}{0.47\textwidth}
+      \begin{alertblock}{Watch out}
+        A caveat or a common mistake.
+      \end{alertblock}
+    \end{column}
+  \end{columns}
+  \note{Compare the two sides, left to right.}
+\end{frame}
+
+\begin{frame}{An Equation}
+  \begin{equation*}
+    f(x) = \sum_{k=0}^{n} a_k\, x^k
+  \end{equation*}
+  Explain what each symbol means, and why it matters here.
+  \note{Read the equation aloud once, slowly.}
+\end{frame}
+
+\section{Conclusion}
+\begin{frame}{Summary}
+  \begin{enumerate}
+    \item Your first conclusion
+    \item Your second conclusion
+  \end{enumerate}
+  \vfill
+  \begin{center}
+    {\Large Thank you. Questions?}
+  \end{center}
+  \note{Thank the audience and invite questions.}
+\end{frame}
+
+\end{document}

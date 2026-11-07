@@ -2,6 +2,38 @@
 
 All notable changes to TeXora. The newest version is first.
 
+## 1.4.0
+
+### Improved
+
+- A new look for the presenter screen, with the slide, notes and next slide on cards.
+- A top row shows the open files, whether you are ready to present, and a **Present** button.
+- The drawing tools sit beside the slide in the large slide view.
+- The timer, then previous and next buttons with the slide number and overlay step, sit under the main panel.
+- The talk's sections are shown as a coloured line with your place and your bookmarks; click one to go there.
+- The time of day sits in the top row, beside **Present**; the pace shows under the sections.
+- A note saved with Edit Note shows at once, without waiting for LaTeX to rebuild the slides.
+- For a `.tex` presentation, **Also save in the .tex file** chooses whether notes go into the source as `\note{...}` or into the `.note.md` file.
+
+### New
+
+- When you fall behind, a button offers to skip slides to catch up.
+- **New LaTeX presentation** on Home and in the File menu: choose one of eight templates.
+- Three animated templates: Motion Lab, Flipbook and Media Studio, with animations, GIF frames and a video clip.
+- The sample lecture opens with a 20-minute duration, a bookmark and example points in its notes.
+
+## 1.3.0
+
+### New
+
+- Comment out or uncomment lines in the LaTeX studio with **Cmd/Ctrl+/**.
+- With several lines selected, all of them are commented or uncommented at once.
+- **Cmd/Ctrl+]** comments and **Cmd/Ctrl+[** uncomments; all three keys can be changed in Settings.
+- Animations made with the LaTeX `animate` package now play, as in Adobe Acrobat.
+- Animations start by themselves when set to (`autoplay`), loop or play back and forth, at their own frame rate.
+- Click an animation to play or pause it; the presenter view has first, previous, play/pause, next and last frame buttons.
+- Video clips (`\movie` or media9) show a play button and open in your video player; clips set to start by themselves do so during the talk.
+
 ## 1.2.0
 
 ### New

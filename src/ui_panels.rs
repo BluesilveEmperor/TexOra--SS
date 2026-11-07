@@ -316,13 +316,21 @@ impl App {
             CollapsingHeader::new(strong("Required LaTeX packages", 14.5)).id_salt(("settings", "Required LaTeX packages")).default_open(false).open(force).show(ui, |ui| self.required_packages(ui));
             group(ui, "Speaker notes", false, &mut |ui| {
                 // A LaTeX presentation keeps its notes in the source, as \note{} in each slide.
-                let place = match &self.src {
-                    Some(s) => Some(s.path.clone()),
-                    None => self.deck_path.as_ref().map(|p| crate::notes::notes_file(p)),
+                let place = match (&self.src, self.st.notes_in_tex) {
+                    (Some(s), true) => Some(s.path.clone()),
+                    _ => self.deck_path.as_ref().map(|p| crate::notes::notes_file(p)),
                 };
                 ui.label(RichText::new("TeXora shows notes from the PDF's notes pages, from \\note{} in the LaTeX source, or from a Markdown file beside the presentation with one ## Slide N section per slide. Write that file in any text editor; TeXora reads it when the presentation opens.").size(12.5));
                 if self.src.is_some() {
-                    ui.label(RichText::new("This presentation's notes are saved in its LaTeX source, as \\note{...} in each slide, so the presenter and the LaTeX studio always show the same notes:").size(12.5).color(LEAF_DARK));
+                    if ui.checkbox(&mut self.st.notes_in_tex, "Save notes in the .tex file, as \\note{...}").changed() {
+                        self.save_layout();
+                    }
+                    let where_to = if self.st.notes_in_tex {
+                        "This presentation's notes are saved in its LaTeX source, as \\note{...} in each slide, so the presenter and the LaTeX studio always show the same notes. A new note shows at once; the slides rebuild in the background:"
+                    } else {
+                        "This presentation's notes are saved in the Markdown file beside it; the .tex source is not changed. A note there shows instead of the slide's \\note:"
+                    };
+                    ui.label(RichText::new(where_to).size(12.5).color(LEAF_DARK));
                 }
                 match place {
                     Some(p) => {

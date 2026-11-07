@@ -10,6 +10,7 @@ use crate::tabs::Tab;
 use egui::{Color32, Context, TextureHandle, TextureOptions, ViewportCommand, ViewportId};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -33,6 +34,8 @@ const MAX_RENDER_WIDTH: u32 = 3000;
 pub const SAMPLE_TEX: &str = include_str!("../assets/sample/texora-sample.tex");
 pub const SAMPLE_PDF: &[u8] = include_bytes!("../assets/sample/texora-sample.pdf");
 const SAMPLE_NAV: &str = include_str!("../assets/sample/texora-sample.nav");
+/// Marks the current sample lecture; a copy without it was made by an older version.
+const SAMPLE_MARK: &str = "% TeXora sample lecture, edition 2";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum View {
@@ -99,12 +102,61 @@ pub struct Source {
     pub goto_line: Option<usize>,
 }
 
+/// Where one animation is: the frame on show, whether it plays, which way, and when the next frame is due.
+#[derive(Clone, Debug)]
+pub struct AnimPlay {
+    pub frame: usize,
+    pub playing: bool,
+    pub forward: bool,
+    pub next_at: Instant,
+}
+
+impl AnimPlay {
+    pub fn start() -> Self {
+        AnimPlay { frame: 0, playing: true, forward: true, next_at: Instant::now() }
+    }
+}
+
+/// One step of an animation in the way it plays, with what happens at either end.
+pub fn anim_step(st: &mut AnimPlay, frames: usize, end: pdf::AnimEnd) {
+    let last = frames.saturating_sub(1);
+    if st.forward {
+        if st.frame < last {
+            st.frame += 1;
+        } else {
+            match end {
+                pdf::AnimEnd::Loop => st.frame = 0,
+                pdf::AnimEnd::Bounce => {
+                    st.forward = false;
+                    st.frame = last.saturating_sub(1);
+                }
+                pdf::AnimEnd::Stop => st.playing = false,
+            }
+        }
+    } else if st.frame > 0 {
+        st.frame -= 1;
+    } else {
+        match end {
+            pdf::AnimEnd::Loop => st.frame = last,
+            pdf::AnimEnd::Bounce => {
+                st.forward = true;
+                st.frame = 1.min(last);
+            }
+            pdf::AnimEnd::Stop => st.playing = false,
+        }
+    }
+}
+
 pub struct Args {
     pub file: Option<PathBuf>,
     pub screenshot: Option<PathBuf>,
     pub view: Option<String>,
     pub goto: Option<usize>,
     pub demo: bool,
+    /// Create a presentation here from a template (`--new`), instead of opening a file.
+    pub new_deck: Option<PathBuf>,
+    /// The template for `new_deck`, by id.
+    pub template: Option<String>,
     /// Window size in points, for checking small screens.
     pub window: Option<[f32; 2]>,
     /// Test input: `w:milliseconds`, `k:Key`, `m:x,y` (move), `d:x,y` (press), `u:x,y` (release), separated by `;`.
@@ -142,6 +194,7 @@ pub struct App {
     /// The box that shows where this copy's command-line tool is.
     pub cli_open: bool,
     /// The template picker for a new presentation, with the template selected.
+    pub template_picker: Option<usize>,
     /// Open Settings at the Required LaTeX packages section once.
     pub show_packages: bool,
     /// ? > System check.
@@ -221,7 +274,17 @@ pub struct App {
     pub compile_ok: Option<bool>,
     pub compile_note: String,
     pub open_after_compile: bool,
+    /// Notes just written into the .tex source, by slide. They show at once, while the slides
+    /// rebuild, and give way when the source's note for that slide is changed in the studio.
+    pub note_pending: crate::notes::Notes,
     pub sync_mark: Option<(usize, [f32; 2], Instant)>,
+    /// Animations in the PDF (the animate package): where each one is in its play, by (page, number).
+    pub anim_play: HashMap<(usize, usize), AnimPlay>,
+    /// Frame pictures, by (page, animation, frame): the page width they were made for, and the picture.
+    pub anim_cache: HashMap<(usize, usize, usize), (u32, TextureHandle)>,
+    pub anim_pending: HashSet<pdf::FrameReq>,
+    /// The page whose animations were last started, so a new slide starts its own.
+    pub anim_page: Option<usize>,
     /// In the studio, show the slide for the line the cursor is on.
     pub follow_cursor: bool,
     pub tex_checked: Instant,
@@ -252,10 +315,29 @@ pub fn ensure_sample() -> Option<PathBuf> {
     let dir = settings::data_dir().join("sample");
     std::fs::create_dir_all(&dir).ok()?;
     let pdf = dir.join("texora-sample.pdf");
-    if !pdf.exists() {
+    let tex = dir.join("texora-sample.tex");
+    // A copy made by an older version is refreshed; it is kept beside, in case it was edited.
+    let current = std::fs::read_to_string(&tex).map(|t| t.contains(SAMPLE_MARK)).unwrap_or(false);
+    if !pdf.exists() || !current {
+        if tex.exists() && !current {
+            let _ = std::fs::copy(&tex, dir.join("texora-sample.tex.old"));
+        }
         std::fs::write(&pdf, SAMPLE_PDF).ok()?;
         std::fs::write(dir.join("texora-sample.nav"), SAMPLE_NAV).ok()?;
-        std::fs::write(dir.join("texora-sample.tex"), SAMPLE_TEX).ok()?;
+        std::fs::write(&tex, SAMPLE_TEX).ok()?;
+    }
+    // The sample comes with a 20-minute duration and a bookmark on slide 6, as in the guide's
+    // pictures. Ink and rehearsals already saved for it stay.
+    let side_path = crate::analytics::Sidecar::path_for(&pdf);
+    let mut side = crate::analytics::Sidecar::load(&pdf);
+    if !side_path.exists() || side.target_minutes == 0.0 {
+        if !side_path.exists() {
+            side.bookmarks.insert(5);
+        }
+        if side.target_minutes == 0.0 {
+            side.target_minutes = 20.0;
+        }
+        let _ = side.save(&pdf);
     }
     Some(pdf)
 }
@@ -297,6 +379,7 @@ impl App {
             about_open: false,
             cli_open: false,
             show_packages: false,
+            template_picker: None,
             syscheck_open: false,
             cli_copied: None,
             update_open: false,
@@ -359,7 +442,12 @@ impl App {
             compile_ok: None,
             compile_note: String::new(),
             open_after_compile: false,
+            note_pending: crate::notes::Notes::new(),
             sync_mark: None,
+            anim_play: HashMap::new(),
+            anim_cache: HashMap::new(),
+            anim_pending: HashSet::new(),
+            anim_page: None,
             follow_cursor: true,
             tex_checked: Instant::now(),
             search_q: String::new(),
@@ -391,7 +479,10 @@ impl App {
             Some("textnotes") => app.notes_view = NotesView::Text,
             _ => {}
         }
-        if wants_deck {
+        if let Some(p) = &args.new_deck {
+            let t = crate::templates::by_id(args.template.as_deref().unwrap_or(""));
+            app.create_presentation(p, t);
+        } else if wants_deck {
             match args.file.clone().or_else(ensure_sample) {
                 Some(p) => app.open_path(&p),
                 None => app.status = "Could not open that file.".to_string(),
@@ -519,6 +610,7 @@ impl App {
             self.deck_path = Some(doc.path.clone());
             self.side = Sidecar::load(&doc.path);
             self.notes = notes::load_notes(&doc.path);
+            self.note_pending.clear();
             for (k, v) in notes::load_pdfpc(&doc.path.with_extension("pdfpc")) {
                 self.notes.entry(k).or_insert(v);
             }
@@ -545,6 +637,11 @@ impl App {
             self.cache.clear();
         }
         self.pending.clear();
+        // Frames are made again from the new file, and the slide's animations start afresh.
+        self.anim_cache.clear();
+        self.anim_pending.clear();
+        self.anim_play.clear();
+        self.anim_page = None;
         self.doc = Some(doc);
         self.rebuild_deck();
         if let Some(g) = self.goto_on_open.take() {
@@ -629,7 +726,8 @@ impl App {
         let Some((f, text)) = self.note_draft.take() else { return };
         // A presentation made from LaTeX keeps its notes in the source, as \note{...} in each frame, so
         // the presenter and the LaTeX studio always show the same notes. The source is saved and rebuilt.
-        let new_src = self.src.as_ref().and_then(|s| notes::set_frame_note(&s.text, f, &notes::md_to_latex(&text)));
+        // With "save in the .tex file" off, it goes into the .note.md file instead, as for a PDF.
+        let new_src = if self.st.notes_in_tex { self.src.as_ref().and_then(|s| notes::set_frame_note(&s.text, f, &notes::md_to_latex(&text))) } else { None };
         if let (Some(new), Some(s)) = (new_src, self.src.as_mut()) {
             s.text = new;
             s.dirty = true;
@@ -639,12 +737,16 @@ impl App {
                 self.save_notes();
             }
             self.save_source();
+            // The note shows at once; LaTeX rebuilds the slides in the background. (Set after saving,
+            // since saving checks the source's notes and would take it back.)
+            self.note_pending.insert(f, text);
             if !self.status.starts_with("Could not") {
-                self.status = format!("Notes for slide {} saved in {file}, in the slide's \\note.", f + 1);
+                self.status = format!("Notes for slide {} saved in {file}, in the slide's \\note. The slides rebuild in the background.", f + 1);
                 self.start_compile();
             }
             return;
         }
+        self.note_pending.remove(&f);
         if text.trim().is_empty() {
             self.notes.remove(&f);
         } else {
@@ -692,6 +794,7 @@ impl App {
         let mut gone = false;
         for i in changed {
             gone |= self.notes.remove(&i).is_some();
+            self.note_pending.remove(&i);
         }
         if gone {
             self.save_notes();
@@ -787,6 +890,17 @@ impl App {
                         self.with_tab(id, |a| a.on_opened(doc));
                     }
                 }
+                Reply::Frame { req, size, rgba } => {
+                    self.anim_pending.remove(&req);
+                    if req.gen == self.gen {
+                        let img = egui::ColorImage::from_rgba_unmultiplied(size, &rgba);
+                        let tex = ctx.load_texture(format!("a{}-{}-{}-{}", req.page, req.anim, req.frame, req.width), img, TextureOptions::LINEAR);
+                        let key = (req.page, req.anim, req.frame);
+                        if self.anim_cache.get(&key).is_none_or(|(w, _)| *w <= req.width) {
+                            self.anim_cache.insert(key, (req.width, tex));
+                        }
+                    }
+                }
                 Reply::Image { req, size, rgba } => {
                     self.pending.remove(&req);
                     if req.gen == self.gen {
@@ -820,6 +934,7 @@ impl App {
         while let Ok(r) = self.compile_rx.try_recv() {
             self.with_tab(r.tab, |a| a.on_compiled(r));
         }
+        self.animate(ctx);
         if let Some(rx) = &self.update_bg_rx {
             if let Ok(o) = rx.try_recv() {
                 // A failed later look (no internet for a while) keeps what an earlier one found.
@@ -940,6 +1055,119 @@ impl App {
         for v in self.cache.values_mut() {
             v.retain(|e| e.2 >= cut);
         }
+    }
+
+    // ---------- animations in the PDF ----------
+
+    /// Runs the animations of the slide on show. As in Acrobat: a slide's animations that play by
+    /// themselves start from the first frame when it is shown, and stop when another slide is shown.
+    fn animate(&mut self, ctx: &Context) {
+        let Some(doc) = &self.doc else { return };
+        let mut to_play: Vec<crate::media::MediaClip> = vec![];
+        let page = self.deck.slides.get(self.live()).map(|s| s.page);
+        if page != self.anim_page {
+            if let Some(old) = self.anim_page {
+                for ((p, _), st) in self.anim_play.iter_mut() {
+                    if *p == old {
+                        st.playing = false;
+                    }
+                }
+            }
+            if let Some(p) = page {
+                for (i, a) in doc.pages.get(p).map(|pg| pg.animations.clone()).unwrap_or_default().iter().enumerate() {
+                    if a.autoplay {
+                        self.anim_play.insert((p, i), AnimPlay::start());
+                    }
+                }
+                // Clips that start by themselves do so during a talk, when the audience sees the slide.
+                if self.audience_open && self.shot.is_none() {
+                    for m in doc.pages.get(p).map(|pg| pg.media.clone()).unwrap_or_default() {
+                        if m.clip.autoplay {
+                            to_play.push(m.clip);
+                        }
+                    }
+                }
+            }
+            self.anim_page = page;
+        }
+        let now = Instant::now();
+        let mut soonest: Option<Instant> = None;
+        for ((p, i), st) in self.anim_play.iter_mut() {
+            if !st.playing {
+                continue;
+            }
+            let Some(a) = doc.pages.get(*p).and_then(|pg| pg.animations.get(*i)) else { continue };
+            let step = Duration::from_secs_f32(1.0 / a.fps.max(0.1));
+            // After a long stall (a hidden window), carry on from now instead of racing to catch up.
+            if now.duration_since(st.next_at) > Duration::from_secs(1) {
+                st.next_at = now;
+            }
+            while st.playing && now >= st.next_at {
+                anim_step(st, a.frames, a.end);
+                st.next_at += step;
+            }
+            if st.playing {
+                soonest = Some(soonest.map_or(st.next_at, |s| s.min(st.next_at)));
+            }
+        }
+        if let Some(t) = soonest {
+            ctx.request_repaint_after(t.saturating_duration_since(now));
+        }
+        for clip in to_play {
+            self.play_media(&clip);
+        }
+    }
+
+    /// The best picture of one animation frame, asking for a sharper one (and the other frames) in the background.
+    pub fn anim_frame(&mut self, page: usize, anim: usize, frame: usize, frames: usize, page_width: u32) -> Option<TextureHandle> {
+        let want = page_width.clamp(64, MAX_RENDER_WIDTH).div_ceil(64) * 64;
+        for f in std::iter::once(frame).chain(0..frames) {
+            let have = self.anim_cache.get(&(page, anim, f)).map(|(w, _)| *w).unwrap_or(0);
+            if have < want {
+                let req = pdf::FrameReq { gen: self.gen, page, anim, frame: f, width: want };
+                if !self.anim_pending.iter().any(|r| r.page == page && r.anim == anim && r.frame == f && r.width >= want) && self.anim_pending.insert(req) {
+                    let _ = self.engine.tx.send(Cmd::Frame(req));
+                }
+            }
+        }
+        self.anim_cache.get(&(page, anim, frame)).map(|(_, t)| t.clone())
+    }
+
+    /// Opens a clip in the computer's video player.
+    pub fn play_media(&mut self, clip: &crate::media::MediaClip) {
+        match &clip.file {
+            Some(f) if self.shot.is_none() => {
+                if let Err(e) = crate::media::open_with_system(f) {
+                    self.status = format!("Could not open {}: {e}", clip.name);
+                } else {
+                    self.status = format!("{} is playing in your video player.", clip.name);
+                }
+            }
+            Some(_) => self.status = format!("Would play {}.", clip.name),
+            None => self.status = format!("The clip {} was not found. Keep it in the same folder as the presentation.", clip.name),
+        }
+    }
+
+    /// Play or pause an animation; a finished one starts again.
+    pub fn anim_toggle(&mut self, page: usize, anim: usize) {
+        let frames = self.doc.as_ref().and_then(|d| d.pages.get(page)).and_then(|p| p.animations.get(anim)).map(|a| a.frames).unwrap_or(0);
+        let st = self.anim_play.entry((page, anim)).or_insert(AnimPlay { frame: 0, playing: false, forward: true, next_at: Instant::now() });
+        if st.playing {
+            st.playing = false;
+        } else {
+            if st.forward && st.frame + 1 >= frames {
+                st.frame = 0;
+            }
+            st.playing = true;
+            st.next_at = Instant::now() + Duration::from_millis(1);
+        }
+    }
+
+    /// Show frame `frame` of an animation, paused there.
+    pub fn anim_seek(&mut self, page: usize, anim: usize, frame: usize) {
+        let st = self.anim_play.entry((page, anim)).or_insert(AnimPlay { frame: 0, playing: false, forward: true, next_at: Instant::now() });
+        st.frame = frame;
+        st.playing = false;
     }
 
     /// Best picture we have now; asks for the exact size in the background.
@@ -1310,6 +1538,61 @@ impl App {
         }
     }
 
+    /// Opens the template picker, on the template chosen last time.
+    pub fn new_presentation_dialog(&mut self) {
+        self.template_picker = Some(crate::templates::by_id(&self.st.last_template));
+    }
+
+    /// Asks where to save, then creates the presentation from template `t`.
+    pub fn save_new_presentation(&mut self, t: usize) {
+        let dialog = rfd::FileDialog::new().add_filter("LaTeX source", &["tex"]).set_file_name("presentation.tex");
+        if let Some(p) = dialog.save_file() {
+            self.create_presentation(&p, t);
+        }
+    }
+
+    /// Writes template `t` to `path` and opens it in the studio.
+    pub fn create_presentation(&mut self, path: &Path, t: usize) {
+        let path = if path.extension().is_some() { path.to_path_buf() } else { path.with_extension("tex") };
+        let template = &crate::templates::TEMPLATES[t.min(crate::templates::TEMPLATES.len() - 1)];
+        match std::fs::write(&path, template.tex) {
+            Ok(_) => {
+                // Pictures and clips of an animated template go into a media folder beside it.
+                let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+                let failed = crate::templates::write_files(&dir, template);
+                self.st.last_template = template.id.to_string();
+                let _ = self.st.save();
+                self.open_path(&path);
+                self.view = View::Studio;
+                if !failed.is_empty() {
+                    self.status = format!("Could not save {} beside the presentation.", failed.join(", "));
+                }
+            }
+            Err(e) => self.status = format!("Could not create that file: {e}"),
+        }
+    }
+
+    /// The comment shortcuts, on the line or lines selected in the studio's editor.
+    fn comment_selection(&mut self, mode: crate::ui_studio::CommentMode, ctx: &Context) {
+        if self.view != View::Studio {
+            return;
+        }
+        let Some(s) = self.src.as_mut() else { return };
+        let id = crate::ui_present::sid("tex-editor");
+        let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+        let (cursor, anchor) = state.cursor.char_range().map(|r| (r.primary.index.0, r.secondary.index.0)).unwrap_or((0, 0));
+        let (text, (from, to)) = crate::ui_studio::comment_lines(&s.text, (anchor, cursor), mode);
+        if text == s.text {
+            return;
+        }
+        s.text = text;
+        s.dirty = true;
+        s.last_edit = Instant::now();
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(from), egui::text::CCursor::new(to))));
+        state.store(ctx, id);
+        ctx.memory_mut(|m| m.request_focus(id));
+    }
+
     /// Looks up everything the source needs, in the background.
     pub fn check_packages(&mut self) {
         let Some(s) = &self.src else {
@@ -1426,6 +1709,14 @@ impl App {
                     self.view = View::Studio;
                     self.sync_editor_to_slide();
                 }
+            }
+            ToggleComment | Comment | Uncomment => {
+                let mode = match a {
+                    Comment => crate::ui_studio::CommentMode::Comment,
+                    Uncomment => crate::ui_studio::CommentMode::Uncomment,
+                    _ => crate::ui_studio::CommentMode::Toggle,
+                };
+                self.comment_selection(mode, ctx);
             }
             Studio => {
                 self.view = if self.view == View::Studio { View::Presenter } else { View::Studio };
@@ -1558,6 +1849,10 @@ impl App {
     // ---------- notes ----------
 
     pub fn note_for(&self, frame: usize) -> Option<String> {
+        // A note just written into the source wins, even when it is empty (a note taken away).
+        if let Some(t) = self.note_pending.get(&frame) {
+            return Some(t.clone()).filter(|t| !t.trim().is_empty());
+        }
         self.notes
             .get(&frame)
             .filter(|n| !n.trim().is_empty())
@@ -1671,7 +1966,7 @@ impl App {
     pub fn script_report(&self) -> String {
         let ink: usize = self.side.ink.values().map(Vec::len).sum();
         format!(
-            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} packages={} recent={} toast={} skipped={:?} draft={:?} line={} log_open={} wrap={} follow={}",
+            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} packages={} recent={} toast={} skipped={:?} draft={:?} line={} log_open={} wrap={} follow={} anims={:?}",
             self.cur + 1,
             self.frame() + 1,
             self.deck.slides.get(self.cur).map(|s| s.step + 1).unwrap_or(0),
@@ -1717,6 +2012,11 @@ impl App {
             self.log_open,
             self.log_wrap,
             self.follow_cursor,
+            {
+                let mut v: Vec<_> = self.anim_play.iter().map(|((p, i), a)| (*p, *i, a.frame, a.playing)).collect();
+                v.sort();
+                v
+            },
         )
     }
 

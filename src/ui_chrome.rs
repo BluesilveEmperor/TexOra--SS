@@ -730,6 +730,10 @@ impl App {
 
     fn menus(&mut self, ui: &mut Ui) {
         ui.menu_button("File", |ui| {
+            if ui.button("New LaTeX presentation…").clicked() {
+                self.new_presentation_dialog();
+                ui.close();
+            }
             if ui.button("Open PDF…").clicked() {
                 self.open_dialog("PDF presentation", &["pdf"]);
                 ui.close();

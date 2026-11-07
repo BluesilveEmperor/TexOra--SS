@@ -1,6 +1,6 @@
 [package]
 name = "texora"
-version = "1.2.0"
+version = "1.4.0"
 edition = "2021"
 description = "TeXora: a LaTeX-native presenter for Beamer and PDF slides"
 license = "PolyForm-Noncommercial-1.0.0"
@@ -19,6 +19,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 rfd = "0.17"
 serde = { version = "1", features = ["derive"] }
 unicode-bidi = "0.3"
+miniz_oxide = "0.8"
 serde_json = "1"
 ureq = { version = "3", features = ["json"] }
 display-info = "0.5"

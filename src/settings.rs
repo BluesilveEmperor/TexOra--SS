@@ -47,6 +47,9 @@ pub enum Action {
     SetDuration,
     CheckPackages,
     Save,
+    ToggleComment,
+    Comment,
+    Uncomment,
     EditNotes,
     AddBookmark,
     CloseTab,
@@ -97,6 +100,9 @@ impl Action {
             Action::SetDuration => "Set talk duration",
             Action::CheckPackages => "Check required packages",
             Action::Save => "Save source",
+            Action::ToggleComment => "Comment or uncomment lines (LaTeX studio)",
+            Action::Comment => "Comment out lines (LaTeX studio)",
+            Action::Uncomment => "Uncomment lines (LaTeX studio)",
             Action::EditNotes => "Edit notes for this slide",
             Action::AddBookmark => "Bookmark this slide",
             Action::CloseTab => "Close this tab",
@@ -104,7 +110,7 @@ impl Action {
     }
     /// Keys that keep working while typing, because they hold a modifier or close things.
     pub fn works_while_typing(self) -> bool {
-        matches!(self, Action::Save | Action::Compile | Action::Search | Action::Open | Action::Cancel | Action::Studio | Action::CheckPackages | Action::StartPage | Action::CloseTab)
+        matches!(self, Action::Save | Action::ToggleComment | Action::Comment | Action::Uncomment | Action::Compile | Action::Search | Action::Open | Action::Cancel | Action::Studio | Action::CheckPackages | Action::StartPage | Action::CloseTab)
     }
 }
 
@@ -205,6 +211,9 @@ pub fn default_keys() -> Vec<(Action, Vec<KeyBind>)> {
         (CheckPackages, vec![KeyBind::cmd("K")]),
         (Studio, vec![KeyBind::cmd("E")]),
         (Save, vec![KeyBind::cmd("S")]),
+        (ToggleComment, vec![KeyBind::cmd("/")]),
+        (Comment, vec![KeyBind::cmd("]")]),
+        (Uncomment, vec![KeyBind::cmd("[")]),
         (EditNotes, vec![k("E")]),
         (AddBookmark, vec![k("M")]),
         (CloseTab, vec![KeyBind::cmd("W")]),
@@ -236,11 +245,16 @@ pub struct Settings {
     /// Multiplies the size of the whole interface.
     pub ui_scale: f32,
     pub notes_size: f32,
+    /// For a .tex presentation, notes written in the presenter also go into the source as \note{...}
+    /// (and the slides rebuild). Off: they go into the .note.md file beside the presentation.
+    pub notes_in_tex: bool,
     pub editor_size: f32,
     /// Look for a newer version when TeXora starts.
     pub check_updates: bool,
     /// A newer version the speaker chose to skip: its update notice is not shown again.
     pub skipped_update: String,
+    /// The template chosen last for a new presentation.
+    pub last_template: String,
     pub layout: Layout,
 }
 
@@ -256,9 +270,11 @@ impl Default for Settings {
             laser_color: [235, 30, 30],
             ui_scale: 1.0,
             notes_size: 26.0,
+            notes_in_tex: true,
             editor_size: 14.0,
             check_updates: true,
             skipped_update: String::new(),
+            last_template: String::new(),
             layout: Layout::default(),
         }
     }
@@ -322,7 +338,7 @@ mod tests {
     #[test]
     fn default_keys_do_not_clash_and_all_exist() {
         let d = default_keys();
-        assert_eq!(d.len(), 45);
+        assert_eq!(d.len(), 48);
         let mut seen = std::collections::HashSet::new();
         for (a, ks) in &d {
             assert!(!ks.is_empty(), "{a:?}");

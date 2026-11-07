@@ -17,7 +17,7 @@
   <a href="#building-from-source">Build</a>
 </p>
 
-![The presenter view: notes, current and next slide, slide number, elapsed time, duration and clock](screenshots/presenter.png)
+![The large slide view: the slide with its drawing tools, notes, the next slide, the talk's sections and the timer](screenshots/large-slide.png)
 
 TeXora is a presenter for **LaTeX Beamer** and **PDF** slides. You see your notes, the current and
 next slide and the time; the room sees only the slide. Open a `.tex` file and edit it in the built-in
@@ -54,6 +54,8 @@ The audience window shows only the slide, fullscreen on a projector or second sc
 - **Speaker notes** from PDF notes pages (Beamer's `show notes on second screen`), from `\note{}` in the
   source, from a `.pdfpc` file, or from a Markdown file beside the presentation. **Edit notes** for any
   slide right in the notes panel.
+- **Animations and videos**: animations made with the LaTeX `animate` package play on the slide, with
+  autoplay, looping and play controls; video clips open in your video player.
 - **Drawing and pointing**: pen, highlighter, eraser, a laser pointer in several colours, and zoom into
   an area. Ink is kept per slide.
 - **Zoom** any slide with the wheel or a pinch, around the pointer.
@@ -122,8 +124,15 @@ Nothing else is needed to present PDFs: each package carries the program and its
 ### Getting started
 
 1. Start TeXora. **Home** shows your recent files and ways to begin.
-2. Choose **Open PDF presentation** or **Open LaTeX project**, pick a recent file, or drop a file on the
-   window. **Try the sample lecture** opens a ready-made talk to explore.
+2. Choose **New LaTeX presentation** to start from a template, **Open PDF presentation** or **Open
+   LaTeX project**, pick a recent file, or drop a file on the window. **Try the sample lecture** opens
+   a ready-made talk to explore.
+
+   **New LaTeX presentation** offers eight templates, each a complete Beamer file with speaker notes:
+   Classic Green, Midnight, Minimal White, Conference and Sunrise, and three animated ones. **Motion
+   Lab** shows animations drawn with TikZ, **Flipbook** plays the frames of a GIF and charts that
+   grow, and **Media Studio** has a video clip and charts that draw themselves. Flipbook and Media
+   Studio save their pictures and clip in a `media` folder beside the new file.
 3. A `.tex` file is compiled for you. Edit it in the **LaTeX studio** (Cmd/Ctrl+E), or in your own
    LaTeX editor: the slides rebuild either way.
 4. Press **F5** to show the slides to the room, then move with the arrow keys or **Space**.
@@ -133,17 +142,23 @@ see its name and shortcut.
 
 ### The presenter screen
 
-![The presenter screen: notes on the left, current and next slide on the right, timers below](screenshots/presenter.png)
+![The presenter screen: notes on the left, current and next slide on the right, the talk's sections and the timer below](screenshots/presenter.png)
 
 | Area | What it shows |
 |---|---|
+| **Top row** | The open files; whether you are ready (displays, duration, notes) or, while presenting, what the audience sees; the time of day; and **Present**, which opens the audience window. |
 | **Notes** | Your speaker notes for the slide on screen. Scroll or pinch to change the text size. |
 | **Current slide** | What the room sees right now. |
 | **Next slide** | What comes next, including the next overlay step. |
-| **Slide number** | Slide, page and overlay step, with the section name and a progress bar. Click it and type a number to jump. |
-| **Time elapsed** | Starts with the first move. Click the time, or use the play, pause and stop buttons. |
-| **Duration** | Click to set how long the talk should take; it then shows the time left and whether you are ahead or behind. |
-| **Clock** | The time of day. |
+| **Timer** | Under the main panel, left of the slide number: time elapsed (click it to pause or resume), the duration (click it to set it), and play, pause and stop buttons. |
+| **Previous and next** | Beside the timer: one step back or on, with the slide number and overlay step between them. |
+| **Sections** | Your talk's sections in their colours, each as wide as its share of the slides. A black line marks where you are and ribbons mark bookmarks. Click a section to go there. |
+| **Pace** | Under the sections: the time left, or how far ahead, behind or over you are. When you are behind, a button offers to skip the next slides that would make up the time. |
+
+In **Large slide** view (**N**) the slide fills the main panel, with the drawing tools beside it and the
+notes and next slide on the right:
+
+![The large slide view with the drawing tools beside the slide](screenshots/large-slide.png)
 
 Drag the dividers between the panels to resize them; **View > Fit all panels automatically** resets them.
 
@@ -243,7 +258,7 @@ TeXora shows notes from any of these:
 |---|---|
 | `Lecture.pdf` | `Lecture.note.md`, in the same folder |
 | `Week 3 - Graphs.pdf` | `Week 3 - Graphs.note.md`, in the same folder |
-| `Thesis defense.tex` | `Thesis defense.tex` itself, as `\note{...}` in each slide |
+| `Thesis defense.tex` | `Thesis defense.tex` itself, as `\note{...}` in each slide (or `Thesis defense.note.md`, with **Also save in the .tex file** unticked) |
 
 For a PDF, keep the `.note.md` file with the presentation when you move or share it, and the notes come
 along. Notes saved by earlier versions as `Lecture.notes.md` are still read, and take the new name the
@@ -252,7 +267,9 @@ next time you save.
 For a LaTeX presentation, the source is the one place its notes live, so the presenter and the LaTeX
 studio always show the same notes: a note edited in the presenter is written into that slide's
 `\note{...}` and the slides rebuild, and a `\note` edited in the studio (or in your own editor) shows
-in the presenter after the rebuild. **Settings > Speaker notes** shows where the open presentation's
+in the presenter after the rebuild. A note you save in the presenter shows at once, without waiting
+for the rebuild. To leave the `.tex` file alone, untick **Also save in the .tex file** under the note
+editor (or in **Settings > Speaker notes**); the notes then go into the `.note.md` file beside it. **Settings > Speaker notes** shows where the open presentation's
 notes are.
 
 **Edit notes.** Click <img src="screenshots/icons/edit-notes.png" width="22" alt="Edit notes"> or press
@@ -288,6 +305,9 @@ notes on the right, and compile messages along the bottom.
 | **Follow cursor** | Shows the slide for the line the cursor is on. |
 | **Present** | Back to the presenter view. |
 
+- **Comment lines**: **Cmd/Ctrl+/** comments out the line the cursor is on, or every selected line,
+  with `%`; if they are all commented already, it uncomments them. **Cmd/Ctrl+]** always comments and
+  **Cmd/Ctrl+[** always uncomments. Change these keys in **Settings > Keyboard shortcuts**.
 - **Find the source of a slide**: double-click anywhere on the slide preview; the editor jumps to that
   line. The **<** and **>** buttons above the preview move between slides, and the wheel zooms.
 - **Problems, Packages, Full log**: the panel along the bottom. Errors show their line number; click
@@ -295,6 +315,63 @@ notes on the right, and compile messages along the bottom.
   its top edge to resize it.
 - If a presentation does not compile when you open it, it opens in the studio with the problems listed.
 - Linking slides and source uses SyncTeX, which comes with TeX Live, MacTeX and MiKTeX.
+
+### Animations and videos
+
+**Animations.** Animations made with the LaTeX `animate` package play on the slide:
+`\begin{animateinline}...\end{animateinline}`, or `\animategraphics` with a series of pictures (for
+example the frames of a GIF). TeXora follows these settings of the animation:
+
+| Setting | What TeXora does |
+|---|---|
+| `autoplay` | Starts when its slide is shown and stops when you move on. Without it, the animation waits for a click. |
+| `loop` | Starts again from the first frame. |
+| `palindrome` | Plays forward, then backward. |
+| Frame rate | Uses the rate set in the source, including changes with `\newframe[rate]`. |
+
+Other `animate` options have not been tested. Click the animation to play or pause it, in either window.
+In the presenter view, a bar under the animation has **first**, **previous**, **play/pause**, **next**
+and **last** frame buttons, and shows which frame is on show. The audience sees the same frame.
+
+**Using a GIF.** LaTeX cannot include a `.gif` file directly, so split it into pictures first and play
+them with `\animategraphics`. With [ffmpeg](https://ffmpeg.org):
+
+```sh
+mkdir frames
+ffmpeg -i anim.gif frames/f%d.png
+ls frames | wc -l
+```
+
+The last command prints the number of frames. Use it as the last number below (30 here):
+
+```latex
+\usepackage{graphicx}
+\usepackage{animate}
+...
+\animategraphics[autoplay,loop,width=0.5\textwidth]{10}{frames/f}{1}{30}
+```
+
+For a large GIF, shrink it while splitting, for example
+`ffmpeg -i anim.gif -vf "fps=10,scale=640:-1" frames/f%d.png`, and keep the `frames` folder beside
+the `.tex` file.
+
+**Videos.** Use Beamer's `\movie` (the `multimedia` package) or media9's `\includemedia`. Each shows a
+play button in the presenter view. Click it and the video opens in your computer's video player,
+which you can move to the projector. The player may start paused, so press play there.
+
+```latex
+\usepackage{multimedia}
+...
+\movie[width=4cm,height=2.25cm]{\fbox{Play}}{clip.mp4}
+```
+
+- A clip set to start by itself (`activate=pageopen` in media9) opens when its slide is shown while
+  the audience window is open. Otherwise, click it.
+- Keep a `\movie` file in the same folder as the presentation. Clips packed into the PDF by media9 are
+  unpacked by TeXora.
+- Write `\movie` without `externalviewer`. `\movie[externalviewer]` and `\href{run:...}` links are not
+  opened yet, and links to local files (`\href{file:...}`) are not opened.
+- Videos do not play inside the slide itself.
 
 ### Presenting to the room
 
@@ -361,6 +438,7 @@ All can be changed in Settings. On macOS **Cmd** is used; on Windows and Linux, 
 | Pointer / pen / highlighter | V / D / H | Eraser / laser | X / L |
 | Zoom to area | Z | Zoom in / out / fit | + / - / 0 |
 | Undo ink / clear ink | Cmd/Ctrl+Z / C | Compile LaTeX | Cmd/Ctrl+B |
+| Comment / uncomment lines (studio) | Cmd/Ctrl+/ | Comment / uncomment only | Cmd/Ctrl+] / Cmd/Ctrl+[ |
 | Edit notes | E | Save notes | Cmd/Ctrl+Enter |
 | Check required packages | Cmd/Ctrl+K | Open file | Cmd/Ctrl+O |
 | Home | Cmd/Ctrl+L | Close tab | Cmd/Ctrl+W |

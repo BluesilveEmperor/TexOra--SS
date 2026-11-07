@@ -159,9 +159,6 @@ impl Deck {
     pub fn slide_for_page(&self, page: usize) -> Option<usize> {
         self.slides.iter().rposition(|s| s.page <= page)
     }
-    pub fn section_of(&self, frame: usize) -> Option<&Section> {
-        self.sections.iter().rev().find(|s| s.first_frame <= frame)
-    }
     /// Frames in the main talk, leaving out backup slides.
     pub fn talk_frames(&self) -> usize {
         self.backup_start.unwrap_or(self.frames.len())

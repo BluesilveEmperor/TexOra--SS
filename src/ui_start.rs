@@ -82,9 +82,9 @@ impl App {
     fn start_actions(&mut self, ui: &mut Ui, width: f32) {
         ui.label(RichText::new("Get started").size(17.0).family(FontFamily::Name("medium".into())).color(INK));
         ui.add_space(4.0);
-        // Creating presentations from templates is not part of the free TeXora. The card stays
-        // in place, switched off, so Home keeps its shape, and nothing happens when it is clicked.
-        locked_card(ui, width, Icon::New, "New LaTeX presentation", "Not included in this free version");
+        if card(ui, width, Icon::New, "New LaTeX presentation", "Start from a ready Beamer template", true).clicked() {
+            self.new_presentation_dialog();
+        }
         if card(ui, width, Icon::Pdf, "Open PDF presentation", "Present any PDF, with notes if it has them", false).clicked() {
             self.open_dialog("PDF presentation", &["pdf"]);
         }
@@ -185,19 +185,6 @@ impl App {
     }
 }
 
-/// A Home card that is switched off: greyed out, no hover effect, and clicks do nothing.
-fn locked_card(ui: &mut Ui, width: f32, icon: Icon, title: &str, detail: &str) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, 68.0), Sense::hover());
-    let faded = Color32::from_rgb(165, 165, 158);
-    ui.painter().rect_filled(rect, 10.0, Color32::from_rgb(234, 233, 229));
-    ui.painter().rect_stroke(rect, 10.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
-    icons::paint(ui.painter(), Rect::from_center_size(pos2(rect.left() + 34.0, rect.center().y), vec2(24.0, 24.0)), icon, faded);
-    ui.painter().text(rect.min + vec2(62.0, 14.0), Align2::LEFT_TOP, title, FontId::new(15.5, FontFamily::Name("medium".into())), faded);
-    ui.painter().text(rect.min + vec2(62.0, 37.0), Align2::LEFT_TOP, detail, FontId::proportional(12.5), faded);
-    resp.on_hover_cursor(CursorIcon::NotAllowed)
-        .on_hover_text("Starting a presentation from a template is not part of the free TeXora. Open a .tex file you made in your LaTeX editor instead.")
-}
-
 fn card(ui: &mut Ui, width: f32, icon: Icon, title: &str, detail: &str, primary: bool) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 68.0), Sense::click());
     let hover = resp.hovered();
@@ -288,5 +275,128 @@ fn cover_uv(picture: Vec2, area: Vec2) -> Rect {
     } else {
         let w = aa / pa;
         Rect::from_min_max(pos2((1.0 - w) / 2.0, 0.0), pos2((1.0 + w) / 2.0, 1.0))
+    }
+}
+
+fn packed_picture(ctx: &Context, name: &str, png: &'static [u8]) -> Option<(TextureHandle, Vec2)> {
+    let key = Id::NULL.with(("packed-picture", name.to_string()));
+    let stored: Option<Option<(TextureHandle, Vec2)>> = ctx.data(|d| d.get_temp(key));
+    stored.unwrap_or_else(|| {
+        let made = image::load_from_memory_with_format(png, image::ImageFormat::Png).ok().map(|p| p.to_rgba8()).map(|p| {
+            let size = [p.width() as usize, p.height() as usize];
+            let image = ColorImage::from_rgba_unmultiplied(size, p.as_raw());
+            let smooth = TextureOptions::LINEAR.with_mipmap_mode(Some(TextureFilter::Linear));
+            (ctx.load_texture(name, image, smooth), vec2(size[0] as f32, size[1] as f32))
+        });
+        ctx.data_mut(|d| d.insert_temp(key, made.clone()));
+        made
+    })
+}
+
+fn draw_picture(ui: &mut Ui, ctx: &Context, name: &str, png: &'static [u8], width: f32) -> Response {
+    match packed_picture(ctx, name, png) {
+        Some((t, size)) => {
+            let h = width * size.y / size.x.max(1.0);
+            let (r, resp) = ui.allocate_exact_size(vec2(width, h), Sense::click());
+            ui.painter().image(t.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+            ui.painter().rect_stroke(r, 2.0, Stroke::new(1.0, LINE), StrokeKind::Outside);
+            resp
+        }
+        None => ui.allocate_exact_size(vec2(width, width * 0.5625), Sense::hover()).1,
+    }
+}
+
+impl App {
+    /// Choosing a template for a new presentation: the list on the left, a large preview on the right.
+    pub fn template_picker(&mut self, ctx: &Context) {
+        let Some(mut pick) = self.template_picker else { return };
+        let mut create = false;
+        let mut cancel = false;
+        let resp = Modal::new(Id::NULL.with("template-picker")).show(ctx, |ui| {
+            ui.set_width(900.0);
+            ui.label(RichText::new("New LaTeX presentation").size(20.0).family(FontFamily::Name("strong".into())).color(INK));
+            ui.label(RichText::new("Choose a style. Each template is a complete Beamer file with speaker notes, ready to edit. The animated ones show animations, GIF frames and video clips that play in TeXora.").size(13.0).color(MUTED));
+            ui.add_space(8.0);
+            // The list scrolls when the window is too short for every template.
+            let list_h = (ctx.content_rect().height() - 230.0).clamp(280.0, 660.0);
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(390.0);
+                    ScrollArea::vertical().id_salt("template-list").max_height(list_h).auto_shrink([false, true]).show(ui, |ui| {
+                        for (i, t) in crate::templates::TEMPLATES.iter().enumerate() {
+                            if i == 0 || i == crate::templates::FIRST_ANIMATED {
+                                let head = if i == 0 { "Classic" } else { "Animated" };
+                                ui.label(RichText::new(head).size(12.5).family(FontFamily::Name("medium".into())).color(MUTED));
+                                ui.add_space(2.0);
+                            }
+                            let selected = i == pick;
+                            let fill = if selected { LEAF_SOFT } else { Color32::from_rgb(247, 246, 243) };
+                            let stroke = if selected { Stroke::new(1.5, LEAF) } else { Stroke::new(1.0, LINE) };
+                            let row = Frame::new().fill(fill).stroke(stroke).corner_radius(8).inner_margin(Margin::same(8)).show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.horizontal(|ui| {
+                                    let img = draw_picture(ui, ctx, &format!("tpl-{}-1", t.id), t.title_png, 118.0);
+                                    ui.add_space(4.0);
+                                    ui.vertical(|ui| {
+                                        ui.spacing_mut().item_spacing.y = 2.0;
+                                        ui.label(RichText::new(t.name).size(15.0).family(FontFamily::Name("medium".into())).color(INK));
+                                        ui.label(RichText::new(t.tags).size(11.5).color(LEAF_DARK));
+                                        ui.add(Label::new(RichText::new(t.about).size(12.0).color(MUTED)).wrap());
+                                    });
+                                    img
+                                })
+                                .inner
+                            });
+                            let whole = ui.interact(row.response.rect, Id::NULL.with(("template-row", i)), Sense::click());
+                            if whole.clicked() || row.inner.clicked() {
+                                pick = i;
+                            }
+                            if whole.double_clicked() || row.inner.double_clicked() {
+                                pick = i;
+                                create = true;
+                            }
+                            ui.add_space(5.0);
+                        }
+                    });
+                });
+                ui.add_space(10.0);
+                ui.vertical(|ui| {
+                    let t = &crate::templates::TEMPLATES[pick];
+                    ui.label(RichText::new(t.name).size(17.0).family(FontFamily::Name("strong".into())).color(INK));
+                    ui.add_space(4.0);
+                    let w = ui.available_width().min(470.0);
+                    let wide = if t.tags.starts_with("4:3") { w * 0.82 } else { w };
+                    draw_picture(ui, ctx, &format!("tpl-{}-1", t.id), t.title_png, wide);
+                    ui.add_space(6.0);
+                    draw_picture(ui, ctx, &format!("tpl-{}-5", t.id), t.content_png, wide);
+                });
+            });
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("You choose where to save it next. Change its colours later on the \\definecolor lines at the top.").size(12.0).color(MUTED));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let label = format!("Create with {}…", crate::templates::TEMPLATES[pick].name);
+                    if ui.add(Button::new(RichText::new(label).color(Color32::WHITE)).fill(LEAF)).clicked() {
+                        create = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        });
+        if cancel || resp.should_close() {
+            self.template_picker = None;
+            return;
+        }
+        if create {
+            self.template_picker = None;
+            // Test pictures never open a save dialog; they create the presentation with --new instead.
+            if !self.is_screenshot() {
+                self.save_new_presentation(pick);
+            }
+            return;
+        }
+        self.template_picker = Some(pick);
     }
 }

@@ -1,0 +1,152 @@
+%% TeXora template: Media Studio. Bright 16:9 slides in deep violet and coral, with video clips and
+%% animated charts. The video is media/clip.mp4 beside this file; put your own clip there (or change
+%% the file name below). TeXora plays a clip in your computer's video player when you click it.
+%% Change the colours on the \definecolor lines below; everything else follows them.
+% !TEX program = pdflatex
+\documentclass[aspectratio=169]{beamer}
+\usetheme{Rochester}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{tikz}
+\usepackage{animate}
+\usepackage{multimedia}
+\usepackage{media9}
+\definecolor{violet}{RGB}{72,42,140}
+\definecolor{coral}{RGB}{240,110,90}
+\definecolor{lilac}{RGB}{236,232,248}
+\setbeamercolor{structure}{fg=violet}
+\setbeamercolor{frametitle}{bg=violet,fg=white}
+\setbeamercolor{title}{bg=violet,fg=white}
+\setbeamercolor{subtitle}{fg=lilac}
+\setbeamercolor{block title}{bg=coral,fg=white}
+\setbeamercolor{block body}{bg=lilac}
+\setbeamercolor{item}{fg=coral}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}{%
+  \leavevmode\hbox{\begin{beamercolorbox}[wd=\paperwidth,ht=2.2ex,dp=1ex,right]{frametitle}%
+    \insertframenumber\,/\,\inserttotalframenumber\hspace*{1.5em}\end{beamercolorbox}}}
+\setbeameroption{show notes on second screen=right}
+
+\title{Media Studio}
+\subtitle{Video clips and moving charts}
+\author{Your Name}
+\institute{Your Institution}
+\date{\today}
+
+% A poster for a video clip: a dark frame with a play sign and a caption.
+\newcommand{\poster}[1]{%
+  \begin{tikzpicture}
+    \fill[violet!85!black, rounded corners=6pt] (0,0) rectangle (6.4,3.6);
+    \fill[white, opacity=0.9] (2.75,1.2) -- (2.75,2.4) -- (3.85,1.8) -- cycle;
+    \node[white, font=\small] at (3.2,0.45) {#1};
+  \end{tikzpicture}}
+
+% The same frame without a play sign, for a clip whose player draws its own.
+\newcommand{\plainposter}[1]{%
+  \begin{tikzpicture}
+    \fill[violet!85!black, rounded corners=6pt] (0,0) rectangle (6.4,3.6);
+    \node[white, font=\small] at (3.2,3.1) {#1};
+  \end{tikzpicture}}
+
+% A line chart drawn up to point #1 of 8.
+\newcommand{\trend}[1]{%
+  \begin{tikzpicture}[x=0.8cm,y=0.5cm]
+    \useasboundingbox (-0.4,-0.6) rectangle (7.6,6.2);
+    \draw[violet!30] (0,0) -- (7.2,0);
+    \draw[violet!30] (0,0) -- (0,6);
+    \fill[violet] (0,1) circle (2.5pt);
+    \foreach \px/\py/\x/\y [count=\n from 2] in {0/1/1/1.8,1/1.8/2/1.5,2/1.5/3/2.9,3/2.9/4/3.4,4/3.4/5/3.1,5/3.1/6/4.6,6/4.6/7/5.4} {
+      \ifnum\n>#1\else
+        \draw[coral, line width=2pt, line cap=round] (\px,\py) -- (\x,\y);
+        \fill[violet] (\x,\y) circle (2.5pt);
+      \fi}
+  \end{tikzpicture}}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+  \note{Welcome everyone. This deck shows video clips and charts that draw themselves.}
+\end{frame}
+
+\begin{frame}{Outline}
+  \tableofcontents
+  \note{First the video clips, then the moving charts.}
+\end{frame}
+
+\section{Video}
+\begin{frame}{A video clip}
+  \begin{columns}[c]
+    \begin{column}{0.55\textwidth}
+      \centering
+      % Click the poster to play media/clip.mp4 in the video player.
+      \movie[width=6.4cm,height=3.6cm]{\poster{Click to play the clip}}{media/clip.mp4}
+    \end{column}
+    \begin{column}{0.4\textwidth}
+      \begin{itemize}
+        \item The clip stays a separate file
+        \item Click it and it plays in your video player
+        \item Move the player to the projector
+      \end{itemize}
+    \end{column}
+  \end{columns}
+  \note{Click the clip. It opens in your video player, which you can move to the projector.}
+\end{frame}
+
+\begin{frame}{A clip packed into the PDF}
+  \centering
+  % media9 packs the clip into the PDF itself, so it travels with the slides.
+  \includemedia[width=0.5\textwidth,height=0.28125\textwidth,activate=onclick,
+    addresource=media/clip.mp4,flashvars={source=media/clip.mp4}]{\plainposter{Packed inside the PDF}}{VPlayer.swf}
+  \par\vspace{0.5em}
+  {\small Sending the PDF alone is enough: the clip is inside it.}
+  \note{TeXora unpacks the clip and plays it when you click.}
+\end{frame}
+
+\section{Moving charts}
+\begin{frame}{A trend that draws itself}
+  \begin{columns}[c]
+    \begin{column}{0.56\textwidth}
+      \centering
+      % Plays once: the line is drawn point by point, then stays.
+      \begin{animateinline}[autoplay]{3}
+        \multiframe{8}{iN=1+1}{\trend{\iN}}
+      \end{animateinline}
+    \end{column}
+    \begin{column}{0.4\textwidth}
+      \begin{block}{Steady growth}
+        Eight measurements, each a little higher than the year before.
+      \end{block}
+    \end{column}
+  \end{columns}
+  \note{The line draws itself once. Point at the last value when it stops.}
+\end{frame}
+
+\begin{frame}{Share of time}
+  \centering
+  % Loops: the slice grows from 0 to 270 degrees and starts again.
+  \begin{animateinline}[autoplay,loop]{12}
+    \multiframe{19}{iA=0+15}{%
+      \begin{tikzpicture}
+        \fill[lilac] (0,0) circle (1.8);
+        \ifnum\iA>0 \fill[coral] (0,0) -- (90:1.8) arc[start angle=90, end angle={90-\iA}, radius=1.8] -- cycle;\fi
+        \fill[white] (0,0) circle (0.9);
+        \node[font=\Large\bfseries, text=violet] {\pgfmathparse{int(\iA/3.6)}\pgfmathresult\,\%};
+      \end{tikzpicture}}
+  \end{animateinline}
+  \note{The ring fills up to three quarters, then starts again.}
+\end{frame}
+
+\begin{frame}{Summary}
+  \begin{itemize}
+    \item \texttt{\textbackslash movie} links a clip; \texttt{\textbackslash includemedia} packs it in
+    \item Clips play in your video player with one click
+    \item \texttt{animateinline} turns a chart into an animation
+  \end{itemize}
+  \vfill
+  \begin{center}{\Large\color{violet} Thank you. Questions?}\end{center}
+  \note{Thank the audience and invite questions.}
+\end{frame}
+
+\end{document}

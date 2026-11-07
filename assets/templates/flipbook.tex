@@ -1,0 +1,143 @@
+%% TeXora template: Flipbook. Paper-white 4:3 slides in charcoal and mustard, with animations made
+%% from a series of pictures, such as the frames of a GIF, and charts that grow.
+%% The pictures are in the media folder beside this file: media/frame-1.png ... media/frame-30.png.
+%% To use your own GIF, split it into pictures first, for example with ffmpeg:
+%%   ffmpeg -i my.gif media/frame-%d.png
+%% then change the first and last number in \animategraphics below.
+%% Change the colours on the \definecolor lines below; everything else follows them.
+% !TEX program = pdflatex
+\documentclass[aspectratio=43]{beamer}
+\usetheme{Boadilla}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{animate}
+\definecolor{paper}{RGB}{250,248,242}
+\definecolor{charcoal}{RGB}{44,48,56}
+\definecolor{mustard}{RGB}{226,168,38}
+\definecolor{sage}{RGB}{108,150,128}
+\setbeamercolor{background canvas}{bg=paper}
+\setbeamercolor{normal text}{fg=charcoal}
+\setbeamercolor{structure}{fg=charcoal}
+\setbeamercolor{palette primary}{bg=charcoal,fg=paper}
+\setbeamercolor{palette secondary}{bg=charcoal!85!mustard,fg=paper}
+\setbeamercolor{palette tertiary}{bg=mustard,fg=charcoal}
+\setbeamercolor{title}{bg=mustard,fg=charcoal}
+\setbeamercolor{frametitle}{fg=charcoal,bg=paper}
+\setbeamercolor{block title}{bg=charcoal,fg=paper}
+\setbeamercolor{block body}{bg=mustard!15}
+\setbeamercolor{item}{fg=mustard!85!black}
+\setbeamertemplate{blocks}[rounded]
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{frametitle}{%
+  \vspace{0.6em}\insertframetitle\par\vspace{-0.3em}
+  {\color{mustard}\rule{2.5em}{2pt}}\par}
+\setbeameroption{show notes on second screen=right}
+
+\title{Flipbook}
+\subtitle{Animations from pictures}
+\author{Your Name}
+\institute{Your Institution}
+\date{\today}
+
+% A bar chart whose bars grow to #1 percent of their full height.
+\newcommand{\bars}[1]{%
+  \begin{tikzpicture}[x=1cm,y=1cm]
+    \useasboundingbox (-0.3,-0.5) rectangle (5.3,3.4);
+    \draw[charcoal!40] (-0.2,0) -- (5.2,0);
+    \foreach \x/\h/\c in {0.3/1.6/sage,1.5/2.6/mustard,2.7/1.1/charcoal!70,3.9/3.0/mustard!70!black} {
+      \fill[\c, rounded corners=2pt] (\x,0) rectangle (\x+0.8,{\h*#1/100});
+    }
+    \node[below, font=\small] at (0.7,0) {2023};
+    \node[below, font=\small] at (1.9,0) {2024};
+    \node[below, font=\small] at (3.1,0) {2025};
+    \node[below, font=\small] at (4.3,0) {2026};
+  \end{tikzpicture}}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+  \note{Welcome everyone. This deck plays animations made from pictures and charts that grow.}
+\end{frame}
+
+\begin{frame}{Outline}
+  \tableofcontents
+  \note{Pictures that play like a film, then charts that build themselves.}
+\end{frame}
+
+\section{Pictures that play}
+\begin{frame}{A GIF, frame by frame}
+  \centering
+  % 30 pictures, 10 per second, starting by itself and looping.
+  \animategraphics[autoplay,loop,width=0.62\textwidth]{10}{media/frame-}{1}{30}
+  \par\vspace{0.5em}
+  {\small The frames of a GIF play as one animation.}
+  \note{The animation starts when the slide appears and loops while you talk.}
+\end{frame}
+
+\begin{frame}{Forwards and back}
+  \centering
+  \animategraphics[autoplay,palindrome,width=0.62\textwidth]{15}{media/frame-}{1}{30}
+  \par\vspace{0.5em}
+  {\small \texttt{palindrome} plays the pictures forwards, then backwards.}
+  \note{Watch the counter in the picture go up and down.}
+\end{frame}
+
+\section{Charts that grow}
+\begin{frame}{Results that build up}
+  \begin{columns}[c]
+    \begin{column}{0.58\textwidth}
+      \centering
+      % Plays once: the bars grow, then stay.
+      \begin{animateinline}[autoplay]{20}
+        \multiframe{21}{iP=0+5}{\bars{\iP}}
+      \end{animateinline}
+    \end{column}
+    \begin{column}{0.38\textwidth}
+      \begin{block}{Growth}
+        Every year the bars rise; 2026 is the highest so far.
+      \end{block}
+    \end{column}
+  \end{columns}
+  \note{The bars grow once when the slide appears. Point at 2026 at the end.}
+\end{frame}
+
+\begin{frame}{Pictures on a click}
+  \centering
+  % Without autoplay it waits; click it to play or pause.
+  \animategraphics[controls,width=0.5\textwidth]{10}{media/frame-}{1}{30}
+  \par\vspace{0.5em}
+  {\small Click the picture to play it, and again to pause.}
+  \note{Start it when the audience is looking. The step buttons go one picture at a time.}
+\end{frame}
+
+\begin{frame}{Side by side}
+  \begin{columns}[c]
+    \begin{column}{0.48\textwidth}
+      \centering
+      \animategraphics[autoplay,loop,width=\linewidth]{10}{media/frame-}{1}{30}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \centering
+      \begin{animateinline}[autoplay,loop,palindrome]{20}
+        \multiframe{21}{iP=0+5}{\resizebox{\linewidth}{!}{\bars{\iP}}}
+      \end{animateinline}
+    \end{column}
+  \end{columns}
+  \note{Two animations at once, each at its own speed.}
+\end{frame}
+
+\begin{frame}{Summary}
+  \begin{itemize}
+    \item \texttt{\textbackslash animategraphics} plays a series of pictures
+    \item Split a GIF into pictures, keep them in the media folder
+    \item \texttt{animateinline} draws each picture with TikZ
+  \end{itemize}
+  \vfill
+  \begin{center}{\Large Thank you. Questions?}\end{center}
+  \note{Thank the audience and invite questions.}
+\end{frame}
+
+\end{document}

@@ -357,6 +357,8 @@ impl App {
         let Some(sl) = self.deck.slides.get(idx).cloned() else { return };
         let notes = r.translate(vec2(0.0, r.height() + caption));
         ui.painter().text(pos2(notes.left(), notes.top() - caption / 2.0), Align2::LEFT_CENTER, "Notes", FontId::proportional(13.0), MUTED);
+        ui.painter().rect_filled(notes, 0.0, Color32::from_rgb(228, 228, 228));
+        ui.painter().rect_stroke(notes, 0.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
         self.notes_panel(ui, notes, (notes.width() / 1000.0).clamp(0.5, 1.1));
         let full = match self.zoom {
             Some(z) => Rect::from_min_max(pos2(z[0], z[1]), pos2(z[2], z[3])),
@@ -390,8 +392,123 @@ impl App {
     }
 }
 
+/// What the comment shortcuts do to the lines.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CommentMode {
+    /// Comment them out, or back in when every one of them already is.
+    Toggle,
+    Comment,
+    Uncomment,
+}
+
+/// Comments out (with `% `) or back in the lines that the selection `sel` (character positions, either
+/// order) touches; with no selection, the cursor's line. Returns the new text and the new selection,
+/// which covers the same lines. A selection ending at the very start of a line leaves that line out, and
+/// blank lines are left as they are. Comments go at the lines' shared indentation, so the code keeps
+/// its shape.
+pub fn comment_lines(text: &str, sel: (usize, usize), mode: CommentMode) -> (String, (usize, usize)) {
+    let chars: Vec<char> = text.chars().collect();
+    let (a, b) = (sel.0.min(sel.1).min(chars.len()), sel.0.max(sel.1).min(chars.len()));
+    let line_start = |i: usize| chars[..i].iter().rposition(|c| *c == '\n').map(|p| p + 1).unwrap_or(0);
+    let first = line_start(a);
+    // A selection that ends at the start of a line does not take that line.
+    let b = if b > a && b > 0 && chars[b - 1] == '\n' { b - 1 } else { b };
+    let last_end = chars[b..].iter().position(|c| *c == '\n').map(|p| b + p).unwrap_or(chars.len());
+    let block: String = chars[first..last_end].iter().collect();
+    let lines: Vec<&str> = block.split('\n').collect();
+    let filled: Vec<&&str> = lines.iter().filter(|l| !l.trim().is_empty()).collect();
+    if filled.is_empty() {
+        return (text.to_string(), sel);
+    }
+    let commented = |l: &str| l.trim_start().starts_with('%');
+    let uncomment = match mode {
+        CommentMode::Toggle => filled.iter().all(|l| commented(l)),
+        CommentMode::Comment => false,
+        CommentMode::Uncomment => true,
+    };
+    let indent = filled.iter().map(|l| l.chars().take_while(|c| *c == ' ' || *c == '\t').count()).min().unwrap_or(0);
+    let new_lines: Vec<String> = lines
+        .iter()
+        .map(|l| {
+            if l.trim().is_empty() {
+                return l.to_string();
+            }
+            if uncomment {
+                let lead = l.chars().take_while(|c| *c == ' ' || *c == '\t').count();
+                let rest: String = l.chars().skip(lead).collect();
+                match rest.strip_prefix('%') {
+                    Some(r) => {
+                        let r = r.strip_prefix(' ').unwrap_or(r);
+                        format!("{}{}", l.chars().take(lead).collect::<String>(), r)
+                    }
+                    None => l.to_string(),
+                }
+            } else {
+                let (head, tail): (String, String) = (l.chars().take(indent).collect(), l.chars().skip(indent).collect());
+                format!("{head}% {tail}")
+            }
+        })
+        .collect();
+    let new_block = new_lines.join("\n");
+    let mut out: String = chars[..first].iter().collect();
+    out.push_str(&new_block);
+    out.extend(chars[last_end..].iter());
+    let block_len = new_block.chars().count();
+    // With a selection, the changed lines stay selected; otherwise the cursor keeps its place.
+    let new_sel = if sel.0 != sel.1 {
+        (first, first + block_len)
+    } else {
+        let shift = block_len as isize - (last_end - first) as isize;
+        let c = (sel.0 as isize + shift).clamp(first as isize, (first + block_len) as isize) as usize;
+        (c, c)
+    };
+    (out, new_sel)
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn one_line_comments_and_uncomments() {
+        let t = "\\begin{frame}\n  \\item One\n\\end{frame}";
+        let cursor = t.find("One").unwrap();
+        let (c, s) = comment_lines(t, (cursor, cursor), CommentMode::Toggle);
+        assert_eq!(c, "\\begin{frame}\n  % \\item One\n\\end{frame}");
+        assert_eq!(s.0, s.1);
+        let (u, _) = comment_lines(&c, s, CommentMode::Toggle);
+        assert_eq!(u, t);
+    }
+
+    #[test]
+    fn selected_lines_keep_their_shape() {
+        let t = "a\n  b\n    c\nd";
+        let (start, end) = (t.find('b').unwrap(), t.find('c').unwrap());
+        let (c, s) = comment_lines(t, (start, end), CommentMode::Toggle);
+        assert_eq!(c, "a\n  % b\n  %   c\nd");
+        assert_eq!(&c.chars().collect::<Vec<_>>()[s.0..s.1].iter().collect::<String>(), "  % b\n  %   c");
+        // Pressed again on the same lines: all commented, so they come back.
+        assert_eq!(comment_lines(&c, s, CommentMode::Toggle).0, t);
+    }
+
+    #[test]
+    fn mixed_lines_are_commented_and_blank_lines_left_alone() {
+        let t = "% done\n\nnot yet";
+        let (c, _) = comment_lines(t, (0, t.chars().count()), CommentMode::Toggle);
+        assert_eq!(c, "% % done\n\n% not yet");
+        let (u, _) = comment_lines(t, (0, t.chars().count()), CommentMode::Uncomment);
+        assert_eq!(u, "done\n\nnot yet");
+        // Comment never takes comments away, and uncomment leaves plain lines as they are.
+        assert_eq!(comment_lines("x", (0, 0), CommentMode::Comment).0, "% x");
+        assert_eq!(comment_lines("x", (0, 0), CommentMode::Uncomment).0, "x");
+    }
+
+    #[test]
+    fn a_selection_ending_at_a_line_start_leaves_that_line() {
+        let t = "one\ntwo\nthree";
+        let (c, _) = comment_lines(t, (0, t.find("three").unwrap()), CommentMode::Toggle);
+        assert_eq!(c, "% one\n% two\nthree");
+    }
+
     use super::*;
 
     #[test]

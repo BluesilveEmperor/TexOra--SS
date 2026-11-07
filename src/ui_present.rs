@@ -1,7 +1,7 @@
 //! The presenter screen, the audience screen and everything that draws on a slide.
 use crate::analytics::{fmt_time, InkKind, Stroke as InkStroke};
 use crate::app::*;
-use crate::icons::{ribbon, sized_button, Icon};
+use crate::icons::{self, ribbon, sized_button, Icon};
 use crate::latex::Engine;
 use crate::pdf::{LinkTarget, Region};
 use egui::epaint::Shape;
@@ -85,14 +85,6 @@ pub fn fit(r: Rect, aspect: f32, top: bool) -> Rect {
     Rect::from_min_size(pos2(x, y), vec2(w, h))
 }
 
-pub fn labelled_frame(p: &Painter, r: Rect, label: &str, size: f32, color: Color32) {
-    p.rect_stroke(r, 0.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
-    let galley = p.layout_no_wrap(label.to_string(), FontId::proportional(size), color);
-    let at = pos2(r.left(), r.top() - galley.size().y / 2.0);
-    p.rect_filled(Rect::from_min_size(at, galley.size() + vec2(3.0, 0.0)), 0.0, BG);
-    p.galley(at, galley, color);
-}
-
 fn uv_rect(z: Option<[f32; 4]>) -> Rect {
     match z {
         Some(u) => Rect::from_min_max(pos2(u[0], u[1]), pos2(u[2], u[3])),
@@ -120,6 +112,64 @@ fn paint_stroke(p: &Painter, r: Rect, uv: Rect, s: &InkStroke) {
     } else {
         p.add(Shape::line(pts, Stroke::new(w, c)));
     }
+}
+
+/// Border of the presenter's cards: a little softer than the lines elsewhere.
+pub const CARD_LINE: Color32 = Color32::from_rgb(220, 219, 216);
+
+/// A rounded card with its label inside, at the top left. Returns the height the label takes.
+pub fn card(p: &Painter, r: Rect, label: &str, size: f32) -> f32 {
+    p.rect_filled(r, 10.0, SURFACE);
+    p.rect_stroke(r, 10.0, Stroke::new(1.0, CARD_LINE), StrokeKind::Inside);
+    if label.is_empty() {
+        return 8.0;
+    }
+    p.text(r.min + vec2(14.0, 10.0), Align2::LEFT_TOP, label, FontId::new(size, FontFamily::Name("medium".into())), MUTED);
+    size + 20.0
+}
+
+/// A colour mixed toward white by `k` (0 keeps it, 1 is white).
+fn soften(c: [u8; 3], k: f32) -> Color32 {
+    let m = |v: u8| (v as f32 + (255.0 - v as f32) * k) as u8;
+    Color32::from_rgb(m(c[0]), m(c[1]), m(c[2]))
+}
+
+/// A darker shade of a colour, for text on its softened version.
+fn deepen(c: [u8; 3]) -> Color32 {
+    let m = |v: u8| (v as f32 * 0.55) as u8;
+    Color32::from_rgb(m(c[0]), m(c[1]), m(c[2]))
+}
+
+/// A rounded label. `at` is its left edge, or its right edge when `right` is set; returns where it went.
+fn pill(p: &Painter, at: Pos2, right: bool, text: &str, size: f32, fill: Color32, ink: Color32, icon: Option<Icon>) -> Rect {
+    let g = p.layout_no_wrap(text.to_string(), FontId::new(size, FontFamily::Name("medium".into())), ink);
+    let lead = if icon.is_some() { size + 6.0 } else { 0.0 };
+    let size_r = g.size() + vec2(size * 1.5 + lead, size * 0.5);
+    let left = if right { at.x - size_r.x } else { at.x };
+    let r = Rect::from_min_size(pos2(left, at.y - size_r.y / 2.0), size_r);
+    p.rect_filled(r, r.height() / 2.0, fill);
+    if let Some(i) = icon {
+        icons::paint(p, Rect::from_center_size(pos2(r.left() + size * 0.75 + size / 2.0, r.center().y), Vec2::splat(size)), i, ink);
+    }
+    p.galley(pos2(r.left() + size * 0.75 + lead, r.center().y - g.size().y / 2.0), g, ink);
+    r
+}
+
+/// A white button with a soft border, for text and arrows; it can be greyed out.
+fn soft_button(ui: &Ui, r: Rect, id: &str, tip: &str, enabled: bool, active: bool) -> Response {
+    let resp = ui.interact(r, sid(id), if enabled { Sense::click() } else { Sense::hover() });
+    let resp = if enabled { resp.on_hover_cursor(CursorIcon::PointingHand) } else { resp };
+    let resp = if tip.is_empty() { resp } else { resp.on_hover_text(tip) };
+    let fill = if active {
+        LEAF_SOFT
+    } else if resp.hovered() && enabled {
+        Color32::from_rgb(240, 239, 236)
+    } else {
+        Color32::WHITE
+    };
+    ui.painter().rect_filled(r, 9.0, fill);
+    ui.painter().rect_stroke(r, 9.0, Stroke::new(1.0, if active { Color32::from_rgb(183, 211, 169) } else { CARD_LINE }), StrokeKind::Inside);
+    resp
 }
 
 impl App {
@@ -172,6 +222,7 @@ impl App {
         };
         let uv = if idx == self.live() { uv_rect(self.zoom) } else { uv_rect(None) };
         self.paint_page(ui, rect, s.page, s.region, uv);
+        self.paint_animations(ui, rect, s.page, s.region, uv);
         if self.left == Some(LeftTab::Search) {
             // Search matches on this page. Page positions are of the whole page, so a slide
             // that fills only half of a double-width page needs converting.
@@ -193,8 +244,141 @@ impl App {
         self.paint_overlays(ui, rect, uv, idx);
     }
 
+    /// Where each animation of a page sits on screen, for a slide drawn in `rect` (only those that show).
+    pub fn animation_rects(&self, rect: Rect, page: usize, region: Region, uv: Rect) -> Vec<(usize, Rect)> {
+        let Some(pg) = self.doc.as_ref().and_then(|d| d.pages.get(page)) else { return vec![] };
+        pg.animations
+            .iter()
+            .enumerate()
+            .filter_map(|(i, a)| {
+                let (x0, x1) = match region {
+                    Region::Full => (a.rect[0], a.rect[2]),
+                    Region::Left => (a.rect[0] * 2.0, a.rect[2] * 2.0),
+                    Region::Right => (a.rect[0] * 2.0 - 1.0, a.rect[2] * 2.0 - 1.0),
+                };
+                (x1 > 0.0 && x0 < 1.0).then(|| (i, Rect::from_two_pos(to_screen(rect, uv, [x0, a.rect[1]]), to_screen(rect, uv, [x1, a.rect[3]]))))
+            })
+            .collect()
+    }
+
+    /// Where each clip of a page sits on screen, for a slide drawn in `rect`.
+    pub fn media_rects(&self, rect: Rect, page: usize, region: Region, uv: Rect) -> Vec<(crate::media::MediaClip, Rect)> {
+        let Some(pg) = self.doc.as_ref().and_then(|d| d.pages.get(page)) else { return vec![] };
+        pg.media
+            .iter()
+            .filter_map(|m| {
+                let (x0, x1) = match region {
+                    Region::Full => (m.rect[0], m.rect[2]),
+                    Region::Left => (m.rect[0] * 2.0, m.rect[2] * 2.0),
+                    Region::Right => (m.rect[0] * 2.0 - 1.0, m.rect[2] * 2.0 - 1.0),
+                };
+                (x1 > 0.0 && x0 < 1.0).then(|| (m.clip.clone(), Rect::from_two_pos(to_screen(rect, uv, [x0, m.rect[1]]), to_screen(rect, uv, [x1, m.rect[3]]))))
+            })
+            .collect()
+    }
+
+    /// A play badge on each clip of the live slide, on the speaker's screen only.
+    fn media_badges(&mut self, ui: &mut Ui, rect: Rect, idx: usize) {
+        let Some(s) = self.deck.slides.get(idx).cloned() else { return };
+        for (clip, r) in self.media_rects(rect, s.page, s.region, uv_rect(self.zoom)) {
+            let p = ui.painter().with_clip_rect(rect);
+            p.rect_stroke(r, 4.0, Stroke::new(1.5, LEAF), StrokeKind::Outside);
+            let d = (r.height().min(r.width()) * 0.35).clamp(18.0, 44.0);
+            let c = r.center();
+            p.circle_filled(c, d / 2.0, Color32::from_rgba_unmultiplied(20, 40, 25, 200));
+            icons::paint(&p, Rect::from_center_size(c + vec2(d * 0.05, 0.0), vec2(d * 0.5, d * 0.5)), Icon::Play, Color32::WHITE);
+            let note = match (&clip.file, clip.autoplay) {
+                (None, _) => format!("{}: not found beside the presentation", clip.name),
+                (Some(_), true) => format!("{}: plays when shown, or click", clip.name),
+                (Some(_), false) => format!("{}: click to play", clip.name),
+            };
+            let g = ui.fonts_mut(|f| f.layout_no_wrap(note, FontId::proportional(11.5), Color32::WHITE));
+            let label = Rect::from_center_size(pos2(c.x, (r.bottom() - 10.0).max(c.y + d / 2.0 + 10.0)), g.size() + vec2(10.0, 4.0));
+            // Inside the slide, even for a clip near its edge.
+            let dx = (rect.left() + 3.0 - label.left()).max(0.0) - (label.right() - rect.right() + 3.0).max(0.0);
+            let label = label.translate(vec2(dx, 0.0));
+            p.rect_filled(label, 4.0, Color32::from_rgba_unmultiplied(20, 40, 25, 200));
+            p.galley(label.min + vec2(5.0, 2.0), g, Color32::WHITE);
+        }
+    }
+
+    /// The frame on show of each animation on the page, over the page picture. A slide that is not
+    /// playing shows its animations' first frame, as the PDF itself does.
+    fn paint_animations(&mut self, ui: &Ui, rect: Rect, page: usize, region: Region, uv: Rect) {
+        let ppp = ui.ctx().pixels_per_point();
+        let page_width = (rect.width() * ppp / uv.width() * if region == Region::Full { 1.0 } else { 2.0 }) as u32;
+        for (i, r) in self.animation_rects(rect, page, region, uv) {
+            let Some(frames) = self.doc.as_ref().and_then(|d| d.pages.get(page)).and_then(|p| p.animations.get(i)).map(|a| a.frames) else { continue };
+            let frame = self.anim_play.get(&(page, i)).map(|s| s.frame).unwrap_or(0);
+            if let Some(t) = self.anim_frame(page, i, frame, frames, page_width) {
+                ui.painter().with_clip_rect(rect).image(t.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+            }
+        }
+    }
+
+    /// Play, pause and step buttons under each animation of the live slide, on the speaker's screen.
+    fn animation_controls(&mut self, ui: &mut Ui, rect: Rect, idx: usize) {
+        let Some(s) = self.deck.slides.get(idx).cloned() else { return };
+        let uv = uv_rect(self.zoom);
+        for (i, r) in self.animation_rects(rect, s.page, s.region, uv) {
+            let Some(a) = self.doc.as_ref().and_then(|d| d.pages.get(s.page)).and_then(|p| p.animations.get(i)).cloned() else { continue };
+            let frames = a.frames;
+            let st = self.anim_play.get(&(s.page, i)).cloned();
+            let (frame, playing) = st.map(|x| (x.frame, x.playing)).unwrap_or((0, false));
+            let size = 26.0;
+            let bar_w = size * 5.0 + 48.0;
+            // Over the PDF's own buttons where it has them, so there is one set of controls;
+            // otherwise just under the animation.
+            let own = a.controls.map(|c| {
+                let (x0, x1) = match s.region {
+                    Region::Full => (c[0], c[2]),
+                    Region::Left => (c[0] * 2.0, c[2] * 2.0),
+                    Region::Right => (c[0] * 2.0 - 1.0, c[2] * 2.0 - 1.0),
+                };
+                Rect::from_two_pos(to_screen(rect, uv, [x0, c[1]]), to_screen(rect, uv, [x1, c[3]]))
+            });
+            let bar = match own {
+                Some(c) => Rect::from_min_size(pos2(c.left(), (c.center().y - size / 2.0).max(r.bottom() + 1.0)), vec2(bar_w.max(c.width()), size)),
+                None => {
+                    let below = r.bottom() + size + 6.0 <= rect.bottom();
+                    let top = if below { r.bottom() + 3.0 } else { r.bottom() - size - 3.0 };
+                    Rect::from_min_size(pos2(r.left().max(rect.left() + 2.0), top), vec2(bar_w, size))
+                }
+            };
+            // Always inside the slide, even where the PDF's own buttons reach past its edge.
+            let x = bar.left().clamp(rect.left() + 3.0, (rect.right() - bar.width() - 3.0).max(rect.left() + 3.0));
+            let bar = bar.translate(vec2(x - bar.left(), 0.0));
+            let cover = own.map_or(bar, |c| bar.union(c)).expand(2.0);
+            ui.painter().with_clip_rect(rect).rect_filled(cover, 6.0, Color32::from_rgb(250, 250, 248));
+            ui.painter().with_clip_rect(rect).rect_stroke(cover, 6.0, Stroke::new(1.0, LINE), StrokeKind::Outside);
+            let mut child = ui.new_child(UiBuilder::new().max_rect(bar).id_salt(("anim-controls", s.page, i)).layout(Layout::left_to_right(Align::Center)));
+            child.spacing_mut().item_spacing.x = 0.0;
+            if sized_button(&mut child, Icon::First, false, "First frame", size, 13.0).clicked() {
+                self.anim_seek(s.page, i, 0);
+            }
+            if sized_button(&mut child, Icon::Prev, false, "Previous frame", size, 13.0).clicked() {
+                self.anim_seek(s.page, i, frame.saturating_sub(1));
+            }
+            let (icon, tip) = if playing { (Icon::Pause, "Pause the animation") } else { (Icon::Play, "Play the animation") };
+            if sized_button(&mut child, icon, playing, tip, size, 13.0).clicked() {
+                self.anim_toggle(s.page, i);
+            }
+            if sized_button(&mut child, Icon::Next, false, "Next frame", size, 13.0).clicked() {
+                self.anim_seek(s.page, i, (frame + 1).min(frames.saturating_sub(1)));
+            }
+            if sized_button(&mut child, Icon::Last, false, "Last frame", size, 13.0).clicked() {
+                self.anim_seek(s.page, i, frames.saturating_sub(1));
+            }
+            child.label(RichText::new(format!(" {}/{}", frame + 1, frames)).size(12.0).color(MUTED));
+        }
+    }
+
     /// Pointer behaviour over the live slide: drawing tools, laser, zoom, links and citation peeks.
     pub fn slide_input(&mut self, ui: &mut Ui, rect: Rect, idx: usize, id: &str) {
+        if !id.starts_with("audience") {
+            self.animation_controls(ui, rect, idx);
+            self.media_badges(ui, rect, idx);
+        }
         let uv = uv_rect(self.zoom);
         let resp = ui.interact(rect, sid(id), Sense::click_and_drag());
         let pos = resp.hover_pos().or(resp.interact_pointer_pos());
@@ -278,6 +462,28 @@ impl App {
                         self.zoom = None;
                     }
                 }
+                // A click on a video clip plays it in the computer's video player.
+                if let Some(s) = self.deck.slides.get(idx).cloned() {
+                    let clip = self.media_rects(rect, s.page, s.region, uv).into_iter().find(|(_, r)| r.contains(pos)).map(|(c, _)| c);
+                    if let Some(c) = clip {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                        if resp.clicked() {
+                            self.play_media(&c);
+                        }
+                        return;
+                    }
+                }
+                // A click on an animation plays or pauses it, as in Acrobat.
+                if let Some(s) = self.deck.slides.get(idx).cloned() {
+                    let hit = self.animation_rects(rect, s.page, s.region, uv).into_iter().find(|(_, r)| r.contains(pos)).map(|(i, _)| i);
+                    if let Some(i) = hit {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                        if resp.clicked() {
+                            self.anim_toggle(s.page, i);
+                        }
+                        return;
+                    }
+                }
                 self.link_input(ui, &resp, idx, p)
             }
         }
@@ -343,82 +549,248 @@ impl App {
             return;
         }
         let s = (full.width() / 1388.0).clamp(0.72, 1.7);
-        let w = full.width();
-        let row = 18.0;
-        let bottom = (84.0 * s).max(68.0);
+        let k = s.min(1.2);
+        let pad = 16.0 * k;
+        let gap = 14.0 * k;
+        let head_h = (54.0 * s).clamp(44.0, 72.0);
+        let foot_h = (102.0 * s).clamp(88.0, 140.0);
+        let nav_h = (52.0 * s).clamp(42.0, 66.0);
         let aspect = self.deck.aspect.max(0.1);
-        let body_bottom = full.bottom() - bottom;
         let large = self.swap;
-        // The main panel takes the full height unless a divider has been moved.
+
+        let head = Rect::from_min_max(pos2(full.left() + pad, full.top()), pos2(full.right() - pad, full.top() + head_h));
+        self.head_row(ui, head, s);
+        let body_top = head.bottom() + 12.0 * k;
+        let body_bottom = full.bottom() - foot_h;
+        let inner_w = full.width() - 2.0 * pad;
+        // Room at the left of the large slide for the floating drawing tools.
+        let tools_w = if large { 66.0 * k } else { 0.0 };
+
+        // The main column takes the height of a slide unless a divider has been moved.
         let stored = if large { self.st.layout.large_col } else { self.st.layout.presenter_col };
-        let split = stored.unwrap_or_else(|| auto_col(w, body_bottom - full.top() - row, aspect, 10.0 + 0.011 * w));
-        let div_x = full.left() + w * split;
-        let right_x = div_x + 0.012 * w;
-        let main = Rect::from_min_max(pos2(full.left() + 10.0, full.top() + row), pos2(div_x - 0.011 * w, body_bottom));
-        let main_frame = Rect::from_min_max(main.min - vec2(0.0, 8.0), main.max);
-        labelled_frame(ui.painter(), main_frame, if self.swap { "Slide" } else { "Notes" }, 14.0 * s.min(1.2), INK);
+        let split = stored.unwrap_or_else(|| {
+            if large {
+                auto_col(inner_w, body_bottom - body_top - nav_h, aspect, gap + tools_w)
+            } else {
+                // The notes take what is left once the right column fits the current and next slide.
+                let slide_w = ((body_bottom - body_top - 10.0 * k - gap) / 2.0 - 14.0 * k - 34.0) * aspect + 28.0;
+                (1.0 - (slide_w + gap) / inner_w.max(1.0)).clamp(0.45, 0.75)
+            }
+        });
+        let div_x = full.left() + pad + inner_w * split;
+        let main = Rect::from_min_max(pos2(full.left() + pad, body_top), pos2(div_x - gap / 2.0, body_bottom - nav_h));
+        let col = Rect::from_min_max(pos2(div_x + gap / 2.0, body_top), pos2(full.right() - pad, body_bottom - 10.0 * k));
+        let label = 14.0 * k;
 
-        // Right column: current and next slide, each with a label on its frame line.
-        let col = Rect::from_min_max(pos2(right_x, full.top() + 9.0), pos2(full.right() - 8.0, body_bottom));
-        let row_share = (if large { self.st.layout.large_row } else { self.st.layout.presenter_row }).unwrap_or(0.5);
+        // Right column: notes (large slide) or the current slide on top, the next slide below. The
+        // next slide's card fits its picture unless that divider has been moved.
+        let next_fit = (col.width() - 28.0) / aspect + label + 34.0;
+        let auto_row = if large { (1.0 - (next_fit + gap) / col.height().max(1.0)).clamp(0.3, 0.7) } else { 0.5 };
+        let row_share = (if large { self.st.layout.large_row } else { self.st.layout.presenter_row }).unwrap_or(auto_row);
         let mid = col.top() + col.height() * row_share;
-        let top_box = Rect::from_min_max(col.min, pos2(col.right(), mid - 4.0));
-        let next_box = Rect::from_min_max(pos2(col.left(), mid + 4.0), col.max);
-        let label_size = 13.0 * s.min(1.2);
+        let top_box = Rect::from_min_max(col.min, pos2(col.right(), mid - gap / 2.0));
+        let next_box = Rect::from_min_max(pos2(col.left(), mid + gap / 2.0), col.max);
+        let p = ui.painter().clone();
+        let top_label = card(&p, top_box, if large { "Notes" } else { "Current slide" }, label);
+        let next_label = card(&p, next_box, "Next slide", label);
+        let next_rect = fit(Rect::from_min_max(next_box.min + vec2(14.0, next_label), next_box.max - vec2(14.0, 12.0)), aspect, false);
 
-        let live_tag = match (self.screen, self.frozen.is_some(), self.audience_open) {
-            (Screen::Black, _, _) => "audience: black",
-            (Screen::White, _, _) => "audience: whiteboard",
-            (_, true, _) => "audience: frozen",
-            (_, _, true) => "audience: live",
-            _ => "",
-        };
-        let swapped = self.swap;
-        labelled_frame(ui.painter(), top_box, if swapped { "Notes" } else { "Current slide" }, label_size, INK);
-        labelled_frame(ui.painter(), next_box, "Next slide", label_size, INK);
-        if !live_tag.is_empty() {
-            let c = if self.screen == Screen::Live && self.frozen.is_none() { LEAF } else { BAD };
-            let g = ui.painter().layout_no_wrap(live_tag.to_string(), FontId::proportional(11.0), c);
-            let at = pos2(top_box.right() - g.size().x - 2.0, top_box.top() - g.size().y / 2.0);
-            ui.painter().rect_filled(Rect::from_min_size(at - vec2(4.0, 0.0), g.size() + vec2(6.0, 0.0)), 0.0, BG);
-            ui.painter().galley(at, g, c);
-        }
-        let cur_rect = fit(top_box.shrink2(vec2(0.0, 10.0)).translate(vec2(0.0, 0.0)), aspect, true);
-        let next_rect = fit(next_box.shrink2(vec2(0.0, 10.0)), aspect, true);
-
-        // Main pane: notes by default, or the large slide when swapped.
         let cur = self.cur;
-        if swapped {
-            let r = fit(main, aspect, false);
+        if large {
+            let area = Rect::from_min_max(main.min + vec2(tools_w, 0.0), main.max);
+            let r = fit(area, aspect, true);
             self.paint_stage(ui, r);
+            p.rect_stroke(r, 4.0, Stroke::new(1.0, CARD_LINE), StrokeKind::Outside);
             self.slide_input(ui, r, cur, "big-slide");
-            self.notes_panel(ui, top_box.shrink2(vec2(0.0, 10.0)), s * 0.55);
+            self.tool_palette(ui, pos2(r.left() - tools_w, r.top() + 18.0 * k), k);
+            self.notes_panel(ui, Rect::from_min_max(top_box.min + vec2(4.0, top_label), top_box.max - vec2(4.0, 6.0)), s * 0.85);
+            self.nav_row(ui, Rect::from_min_max(pos2(area.left(), main.bottom()), pos2(area.right(), body_bottom)), s);
         } else {
-            self.notes_panel(ui, main, s);
-            self.paint_stage(ui, cur_rect);
-            self.slide_input(ui, cur_rect, cur, "small-slide");
-        }
-        if self.tool == Tool::Pointer && self.frozen.is_some() {
-            // While frozen the presenter browses privately; show what the audience still sees.
-            let f = self.frozen.unwrap_or(0);
-            let tag = Rect::from_min_size(cur_rect.left_bottom() + vec2(0.0, 4.0), vec2(cur_rect.width(), 16.0));
-            let lbl = self.deck.slides.get(f).map(|x| x.frame + 1).unwrap_or(0);
-            ui.painter().text(tag.left_center(), Align2::LEFT_CENTER, format!("Audience stays on slide {lbl}. Press F to release."), FontId::proportional(11.0), BAD);
+            let notes_label = card(&p, main, "Notes", label);
+            self.notes_panel(ui, Rect::from_min_max(main.min + vec2(4.0, notes_label), main.max - vec2(4.0, 6.0)), s);
+            let r = fit(Rect::from_min_max(top_box.min + vec2(14.0, top_label), top_box.max - vec2(14.0, 12.0)), aspect, false);
+            self.paint_stage(ui, r);
+            p.rect_stroke(r, 2.0, Stroke::new(1.0, CARD_LINE), StrokeKind::Outside);
+            self.slide_input(ui, r, cur, "small-slide");
+            self.nav_row(ui, Rect::from_min_max(pos2(main.left(), main.bottom()), pos2(main.right(), body_bottom)), s);
         }
         self.paint_next(ui, next_rect);
+        p.rect_stroke(next_rect, 2.0, Stroke::new(1.0, CARD_LINE), StrokeKind::Outside);
 
-        let across = Rect::from_center_size(pos2(div_x, (full.top() + body_bottom) / 2.0), vec2(12.0, body_bottom - full.top()));
-        let a = drag_handle(ui, "main-col", across, true, true);
-        let b = drag_handle(ui, "main-row", Rect::from_center_size(pos2(col.center().x, mid), vec2(col.width(), 10.0)), false, false);
+        let across = Rect::from_center_size(pos2(div_x, (body_top + body_bottom) / 2.0), vec2(gap.max(10.0), body_bottom - body_top));
+        let a = drag_handle(ui, "main-col", across, true, false);
+        let b = drag_handle(ui, "main-row", Rect::from_center_size(pos2(col.center().x, mid), vec2(col.width() * 0.5, gap.max(10.0))), false, false);
         let layout = &mut self.st.layout;
         let (slot_col, slot_row) = if large { (&mut layout.large_col, &mut layout.large_row) } else { (&mut layout.presenter_col, &mut layout.presenter_row) };
-        let moved = a.apply(slot_col, split, a.delta.x / w) | b.apply(slot_row, row_share, b.delta.y / col.height().max(1.0));
+        let moved = a.apply(slot_col, split, a.delta.x / inner_w.max(1.0)) | b.apply(slot_row, row_share, b.delta.y / col.height().max(1.0));
         if moved {
             self.save_layout();
         }
 
-        self.bottom_bar(ui, Rect::from_min_max(pos2(full.left(), full.bottom() - bottom), full.max), s);
+        self.bottom_bar(ui, Rect::from_min_max(pos2(full.left() + pad, full.bottom() - foot_h), pos2(full.right() - pad, full.bottom())), s);
         self.peek_popup(&ctx);
+    }
+
+    /// The files on show, whether everything is ready (or what the audience sees), and Present.
+    fn head_row(&mut self, ui: &mut Ui, r: Rect, s: f32) {
+        let k = s.min(1.2);
+        let p = ui.painter().clone();
+        p.hline(r.x_range(), r.bottom(), Stroke::new(1.0, CARD_LINE));
+        let cy = r.center().y;
+
+        // Present opens the audience window, and closes it again, like F5.
+        let open = self.audience_open;
+        let bh = (40.0 * k).min(r.height() - 8.0);
+        let word = if open { "Presenting" } else { "Present" };
+        let font = FontId::new(17.0 * k, FontFamily::Name("medium".into()));
+        let g = p.layout_no_wrap(word.to_string(), font, INK);
+        let br = Rect::from_min_size(pos2(r.right() - g.size().x - 66.0 * k, cy - bh / 2.0), vec2(g.size().x + 66.0 * k, bh));
+        let tip = if open { "Close the audience window (F5)" } else { "Open the audience window and start the timer (F5)" };
+        if soft_button(ui, br, "present-button", tip, true, open).clicked() {
+            let ctx = ui.ctx().clone();
+            self.run(crate::settings::Action::Present, &ctx);
+        }
+        icons::paint(&p, Rect::from_center_size(pos2(br.left() + 26.0 * k, cy), Vec2::splat(20.0 * k)), Icon::Windows, if open { LEAF_DARK } else { INK });
+        p.galley(pos2(br.left() + 44.0 * k, cy - g.size().y / 2.0), g, INK);
+
+        // What the audience sees while presenting; before that, whether everything is ready.
+        let warn = (Color32::from_rgb(244, 222, 171), Color32::from_rgb(107, 74, 10));
+        let calm = (Color32::from_rgb(234, 233, 230), MUTED);
+        let good = (LEAF_SOFT, LEAF_DARK);
+        let (text, (fill, ink), icon) = if let Some(f) = self.frozen {
+            let n = self.deck.slides.get(f).map(|x| x.frame + 1).unwrap_or(0);
+            (format!("Audience stays on slide {n}. Press F to release."), warn, Some(Icon::Freeze))
+        } else if self.screen == Screen::Black {
+            ("Audience sees a black screen".to_string(), warn, Some(Icon::Black))
+        } else if self.screen == Screen::White {
+            ("Audience sees the whiteboard".to_string(), warn, Some(Icon::White))
+        } else if open {
+            ("Audience window is live".to_string(), good, Some(Icon::Check))
+        } else {
+            let n = self.displays.len().max(1);
+            let notes = !self.notes.is_empty() || self.deck.slides.iter().any(|x| x.notes.is_some());
+            let parts = format!(
+                "{n} display{}, {}, {}",
+                if n == 1 { "" } else { "s" },
+                if self.side.target_minutes > 0.0 { "timer set" } else { "no duration set" },
+                if notes { "notes found" } else { "no notes" }
+            );
+            if n >= 2 {
+                (format!("Ready: {parts}"), good, Some(Icon::Check))
+            } else {
+                (parts, calm, None)
+            }
+        };
+        // The time of day, between the ready information and Present.
+        let g = p.layout_no_wrap(wall_clock(), FontId::monospace(17.0 * k), MUTED);
+        let clock_x = br.left() - 18.0 * k - g.size().x;
+        p.galley(pos2(clock_x, cy - g.size().y / 2.0), g, MUTED);
+        let pill_r = pill(&p, pos2(clock_x - 18.0 * k, cy), true, &text, 14.5 * k, fill, ink, icon);
+
+        // The source and the PDF, as far as there is room.
+        let name = |f: &std::path::Path| f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let mut files: Vec<String> = vec![];
+        if let Some(src) = &self.src {
+            files.push(name(&src.path));
+        }
+        if let Some(pdf) = &self.pdf_path {
+            files.push(name(pdf));
+        }
+        let clip = p.with_clip_rect(Rect::from_min_max(r.min, pos2(pill_r.left() - 10.0, r.bottom())));
+        let mut x = r.left();
+        for (i, f) in files.into_iter().enumerate() {
+            let (family, color) = if i == 0 { (FontFamily::Name("strong".into()), INK) } else { (FontFamily::Proportional, MUTED) };
+            let g = clip.layout_no_wrap(f, FontId::new(16.0 * k, family), color);
+            let w = g.size().x;
+            clip.galley(pos2(x, cy - g.size().y / 2.0), g, color);
+            x += w + 14.0 * k;
+        }
+    }
+
+    /// The drawing tools beside the large slide. They work like the same tools in the toolbar.
+    fn tool_palette(&mut self, ui: &mut Ui, at: Pos2, k: f32) {
+        use crate::settings::Action;
+        let tools = [
+            (Tool::Pointer, Icon::Pointer, Action::Pointer, "Pointer (V)"),
+            (Tool::Pen, Icon::Pen, Action::Pen, "Pen (D)"),
+            (Tool::Highlighter, Icon::Marker, Action::Highlighter, "Marker (H)"),
+            (Tool::Laser, Icon::Laser, Action::Laser, "Laser pointer (L)"),
+            (Tool::Eraser, Icon::Eraser, Action::Eraser, "Eraser (X)"),
+            (Tool::Zoom, Icon::ZoomBox, Action::ZoomTool, "Zoom into an area (Z)"),
+        ];
+        let b = 42.0 * k;
+        let space = 6.0 * k;
+        let inset = 6.0 * k;
+        let frame = Rect::from_min_size(at, vec2(b + inset * 2.0, b * 6.0 + space * 5.0 + inset * 2.0));
+        let p = ui.painter().clone();
+        p.rect_filled(frame.translate(vec2(0.0, 3.0)).expand(2.0), 16.0, Color32::from_black_alpha(10));
+        p.rect_filled(frame, 14.0, SURFACE);
+        p.rect_stroke(frame, 14.0, Stroke::new(1.0, CARD_LINE), StrokeKind::Inside);
+        for (i, (tool, icon, action, tip)) in tools.into_iter().enumerate() {
+            let r = Rect::from_min_size(frame.min + vec2(inset, inset + i as f32 * (b + space)), Vec2::splat(b));
+            let on = self.tool == tool;
+            if soft_button(ui, r, &format!("palette-{i}"), tip, true, on).clicked() {
+                let ctx = ui.ctx().clone();
+                self.run(action, &ctx);
+            }
+            icons::paint(&p, Rect::from_center_size(r.center(), Vec2::splat(20.0 * k)), icon, if on { LEAF_DARK } else { INK });
+        }
+    }
+
+    /// Previous and next, the slide number and the overlay step, under the main column.
+    fn nav_row(&mut self, ui: &mut Ui, r: Rect, s: f32) {
+        use crate::settings::Action;
+        let k = s.min(1.2);
+        let p = ui.painter().clone();
+        let frames = self.deck.frames.len().max(1);
+        let talk = self.deck.talk_frames().max(1);
+        let number = format!("{} / {frames}", self.frame() + 1);
+        let steps = self.deck.frames.get(self.frame()).map(|f| f.last - f.first + 1).unwrap_or(1);
+        let step = self.deck.slides.get(self.cur).map(|x| x.step + 1).unwrap_or(1);
+        let mut tag = String::new();
+        if self.frame() >= talk {
+            tag += "backup slide";
+        }
+        if steps > 1 {
+            tag += &format!("{}step {step} of {steps}", if tag.is_empty() { "" } else { ", " });
+        }
+        let g1 = p.layout_no_wrap(number, FontId::new(20.0 * k, FontFamily::Name("medium".into())), INK);
+        let g2 = p.layout_no_wrap(tag.clone(), FontId::proportional(17.0 * k), if self.frame() >= talk { WARN } else { MUTED });
+        let (bw, bh) = (56.0 * k, (40.0 * k).min(r.height() - 8.0));
+        let space = 18.0 * k;
+        // The timer sits left of the previous button; in a narrow panel the step text gives way first.
+        let timer_w = self.timer_width(&p, s);
+        let timer_gap = 28.0 * k;
+        let (w1, w2) = (g1.size().x, g2.size().x);
+        let nav_w = |tag_shown: bool| bw * 2.0 + space * 2.0 + w1 + if tag_shown { 12.0 * k + w2 } else { 0.0 };
+        let show_tag = !tag.is_empty() && timer_w + timer_gap + nav_w(true) <= r.width();
+        let total = timer_w + timer_gap + nav_w(show_tag);
+        let cy = r.center().y;
+        let mut x = (r.center().x - total / 2.0).max(r.left());
+        self.timer_controls(ui, x, cy, s);
+        x += timer_w + timer_gap;
+        let last = self.deck.slides.len().saturating_sub(1);
+        let prev = Rect::from_min_size(pos2(x, cy - bh / 2.0), vec2(bw, bh));
+        let ctx = ui.ctx().clone();
+        if soft_button(ui, prev, "nav-prev", "Previous (Left arrow)", self.cur > 0, false).clicked() {
+            self.run(Action::Prev, &ctx);
+        }
+        icons::paint(&p, Rect::from_center_size(prev.center(), Vec2::splat(18.0 * k)), Icon::Prev, if self.cur > 0 { INK } else { Color32::from_gray(190) });
+        x += bw + space;
+        p.galley(pos2(x, cy - g1.size().y / 2.0), g1, INK);
+        x += w1 + 12.0 * k;
+        if show_tag {
+            p.galley(pos2(x, cy - g2.size().y / 2.0), g2, MUTED);
+            x += w2;
+        } else {
+            x -= 12.0 * k;
+        }
+        x += space;
+        let next = Rect::from_min_size(pos2(x, cy - bh / 2.0), vec2(bw, bh));
+        if soft_button(ui, next, "nav-next", "Next (Right arrow)", self.cur < last, false).clicked() {
+            self.run(Action::Next, &ctx);
+        }
+        icons::paint(&p, Rect::from_center_size(next.center(), Vec2::splat(18.0 * k)), Icon::Next, if self.cur < last { INK } else { Color32::from_gray(190) });
     }
 
     /// Bookmark and question badges. These are for the presenter, so the audience window has none.
@@ -474,6 +846,19 @@ impl App {
         let size = (self.st.notes_size * s).clamp(14.0, 40.0);
         let shown = self.frame();
         let focus = std::mem::take(&mut self.note_focus);
+        // A .tex presentation: a box under the editor chooses where the note is saved.
+        let rect = if self.src.is_some() && self.note_draft.is_some() {
+            let strip = Rect::from_min_max(pos2(rect.left(), rect.bottom() - 30.0), rect.max);
+            ui.painter().rect_filled(strip, 0.0, Color32::from_rgb(244, 243, 240));
+            let mut row = ui.new_child(UiBuilder::new().max_rect(strip.shrink2(vec2(10.0, 3.0))).layout(Layout::left_to_right(Align::Center)));
+            let tip = "On: the note also goes into the .tex file, as \\note{...}, and the slides rebuild in the background. Off: it is saved in the .note.md file beside the presentation. Either way it shows at once.";
+            if row.checkbox(&mut self.st.notes_in_tex, "Also save in the .tex file (\\note)").on_hover_text(tip).changed() {
+                self.save_layout();
+            }
+            Rect::from_min_max(rect.min, pos2(rect.right(), strip.top() - 2.0))
+        } else {
+            rect
+        };
         let Some((slide, draft)) = &mut self.note_draft else { return };
         ui.painter().rect_filled(rect, 0.0, Color32::from_rgb(250, 250, 248));
         ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.5, LEAF), StrokeKind::Inside);
@@ -534,13 +919,12 @@ impl App {
             return;
         }
         let mode = match self.notes_view {
-            NotesView::Auto if self.notes.contains_key(&frame) => NotesView::Text,
+            NotesView::Auto if self.notes.contains_key(&frame) || self.note_pending.contains_key(&frame) => NotesView::Text,
             NotesView::Auto if has_pdf => NotesView::Pdf,
             NotesView::Auto => NotesView::Text,
             NotesView::Pdf if !has_pdf => NotesView::Text,
             m => m,
         };
-        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
         match mode {
             NotesView::Pdf => {
                 let (p, reg) = sl.and_then(|x| x.notes).unwrap();
@@ -556,7 +940,6 @@ impl App {
                 ui.painter().vline(r.right(), r.y_range(), Stroke::new(1.5, Color32::BLACK));
             }
             _ => {
-                ui.painter().rect_filled(rect.shrink(1.0), 0.0, Color32::from_rgb(228, 228, 228));
                 let inner = rect.shrink(14.0 * s.max(0.6));
                 let mut child = ui.new_child(UiBuilder::new().max_rect(inner));
                 child.set_clip_rect(inner.intersect(ui.clip_rect()));
@@ -586,133 +969,14 @@ impl App {
         }
     }
 
+    /// The talk's sections as a timeline with where you are, then the pace.
     fn bottom_bar(&mut self, ui: &mut Ui, r: Rect, s: f32) {
-        // Four boxes with the same margins as the panels above, and room below the last one.
-        let gap = 10.0;
-        let inner = Rect::from_min_max(pos2(r.left() + 10.0, r.top() + 14.0 * s), pos2(r.right() - 8.0, r.bottom() - 12.0));
-        let shares = [0.335, 0.42, 0.115, 0.13];
-        let room = inner.width() - gap * 3.0;
-        let mut boxes = [Rect::NOTHING; 4];
-        let mut x = inner.left();
-        for (i, share) in shares.iter().enumerate() {
-            let width = room * share / shares.iter().sum::<f32>();
-            boxes[i] = Rect::from_min_max(pos2(x, inner.top()), pos2(x + width, inner.bottom()));
-            x += width + gap;
-        }
-        let [slide_r, time_r, dur_r, clock_r] = boxes;
+        let k = s.min(1.2);
         let p = ui.painter().clone();
-        let lab = 17.0 * s.min(1.2);
-        labelled_frame(&p, slide_r, "Slide number", lab, INK);
-        labelled_frame(&p, time_r, "Time elapsed", lab, INK);
-        labelled_frame(&p, dur_r, "Duration", lab * 0.92, MUTED);
-        labelled_frame(&p, clock_r, "Clock", lab * 0.92, MUTED);
-        // Values sit in the middle of their boxes, a little below the label on the top edge.
-        let vy = inner.center().y + 3.0 * s;
-        // A hover highlight starts below the box's label, which sits on its top edge.
-        let below_label = |b: Rect| Rect::from_min_max(pos2(b.left() + 2.0, b.top() + lab * 0.6), b.max - vec2(2.0, 2.0));
-
-        let total = self.deck.slides.len().max(1);
-        let sl = self.deck.slides.get(self.cur);
-        let label = sl.map(|x| x.frame + 1).unwrap_or(1);
-        p.text(pos2(slide_r.center().x, vy), Align2::CENTER_CENTER, format!("{label} ({}/{total})", self.cur + 1), FontId::proportional(30.0 * s), INK);
-        // Section and talk progress: quiet context beside the number.
-        if let Some(sec) = self.deck.section_of(label - 1) {
-            p.text(pos2(slide_r.left() + 10.0, vy), Align2::LEFT_CENTER, &sec.title, FontId::proportional(13.0 * s), MUTED);
-        }
-        let talk = self.deck.talk_frames().max(1);
-        let steps = self.deck.frames.get(self.frame()).map(|f| f.last - f.first + 1).unwrap_or(1);
-        let step = self.deck.slides.get(self.cur).map(|x| x.step + 1).unwrap_or(1);
-        let mut tag = String::new();
-        if self.frame() >= talk {
-            tag += "backup slide";
-        }
-        if steps > 1 {
-            tag += &format!("{}step {step} of {steps}", if tag.is_empty() { "" } else { ", " });
-        }
-        p.text(pos2(slide_r.right() - 10.0, vy), Align2::RIGHT_CENTER, tag, FontId::proportional(13.0 * s), if self.frame() >= talk { WARN } else { MUTED });
-        let frac = ((self.frame() + 1) as f32 / talk as f32).min(1.0);
-        // The progress line runs along the inside of the box's bottom edge, clear of the window edge.
-        let track = Rect::from_min_size(pos2(slide_r.left() + 1.0, slide_r.bottom() - 4.0), vec2(slide_r.width() - 2.0, 3.0));
-        p.rect_filled(track, 0.0, LINE);
-        p.rect_filled(Rect::from_min_size(track.min, vec2(track.width() * frac, 3.0)), 0.0, LEAF);
-        // Bookmarks along the progress line, so they can be seen coming.
-        for f in self.side.bookmarks.iter().copied().filter(|f| *f < talk) {
-            let [red, green, blue] = self.section_color(f);
-            let x = track.left() + track.width() * (f as f32 + 0.5) / talk as f32;
-            p.rect_filled(Rect::from_center_size(pos2(x, track.center().y - 1.0), vec2(4.0, 7.0)), 1.0, Color32::from_rgb(red, green, blue));
-        }
-
-        // Time elapsed, with its three controls at the right.
-        let mono = |sz: f32| FontId::monospace(sz * s);
-        let target = self.side.target_minutes;
-        let mut color = INK;
-        if target > 0.0 {
-            let left = target as f64 * 60.0 - self.elapsed;
-            if left < 0.0 {
-                color = BAD;
-            } else if left < target as f64 * 6.0 {
-                color = WARN;
-            }
-        }
-        let btn = (32.0 * s).clamp(26.0, 40.0);
-        let buttons = Rect::from_min_size(pos2(time_r.right() - btn * 3.0 - 10.0, vy - btn / 2.0), vec2(btn * 3.0 + 6.0, btn));
-        let room = buttons.left() - time_r.left();
-        // The time itself is a button: click it to pause, and again to carry on.
-        let area = Rect::from_min_max(time_r.min, pos2(buttons.left() - 2.0, time_r.bottom())).shrink(1.0);
-        let tip = if self.timer_on { "Click to pause the timer" } else { "Click to start the timer" };
-        let time_hit = ui.interact(area, sid("time-elapsed"), Sense::click()).on_hover_text(tip).on_hover_cursor(CursorIcon::PointingHand);
-        if time_hit.hovered() {
-            p.rect_filled(below_label(area), 5.0, LEAF_SOFT);
-        }
-        if time_hit.clicked() {
-            let c = ui.ctx().clone();
-            self.run(crate::settings::Action::ToggleTimer, &c);
-        }
-        let t = fmt_time(self.elapsed as f32);
-        let paused = if !self.timer_on && room > 330.0 * s { " (paused)" } else { "" };
-        p.text(pos2(time_r.left() + room / 2.0, vy), Align2::CENTER_CENTER, format!("{t}{paused}"), mono(32.0), color);
-        let mut row = ui.new_child(UiBuilder::new().max_rect(buttons).layout(Layout::left_to_right(Align::Center)));
-        row.spacing_mut().item_spacing.x = 3.0;
-        let glyph = btn * 0.55;
-        if sized_button(&mut row, Icon::Play, self.timer_on, "Start or resume the timer", btn, glyph).clicked() {
-            self.start_timer();
-        }
-        if sized_button(&mut row, Icon::Pause, !self.timer_on && self.elapsed > 0.0, "Pause the timer", btn, glyph).clicked() {
-            self.pause_timer();
-        }
-        if sized_button(&mut row, Icon::Stop, false, "Stop and reset the timer", btn, glyph).clicked() {
-            self.stop_timer();
-        }
-
-        // Duration: click to change it. Below it, how much is left and how the pace looks.
-        let dur_text = fmt_time(target * 60.0);
-        let dur_hit = ui.interact(dur_r.shrink(1.0), sid("duration"), Sense::click()).on_hover_text("Click to set the talk duration").on_hover_cursor(CursorIcon::PointingHand);
-        if dur_hit.hovered() {
-            p.rect_filled(below_label(dur_r), 5.0, LEAF_SOFT);
-        }
-        self.duration_rect = dur_r;
-        if dur_hit.clicked() {
-            self.duration_open = !self.duration_open;
-        }
-        let has_target = target > 0.0;
-        let two_lines = has_target && self.elapsed > 1.0;
-        let dur_y = if two_lines { vy - 8.0 * s } else { vy };
-        p.text(pos2(dur_r.center().x, dur_y), Align2::CENTER_CENTER, dur_text, mono(if two_lines { 20.0 } else { 25.0 }), if has_target { INK } else { MUTED });
-        if has_target && self.elapsed > 1.0 {
-            let left = target * 60.0 - self.elapsed as f32;
-            let done = self.frame() as f32 / talk as f32;
-            let should = (self.elapsed as f32 / (target * 60.0)).min(1.0);
-            let diff = (should - done) * target * 60.0;
-            let (msg, c) = if left < 0.0 {
-                (format!("{} over", fmt_time(-left)), BAD)
-            } else if diff.abs() > 20.0 {
-                (format!("{} {}", fmt_time(diff.abs()), if diff > 0.0 { "behind" } else { "ahead" }), if diff > 0.0 { WARN } else { LEAF })
-            } else {
-                (format!("{} left", fmt_time(left)), MUTED)
-            };
-            p.text(pos2(dur_r.center().x, dur_r.bottom() - 9.0 * s), Align2::CENTER_CENTER, msg, FontId::proportional(11.5), c);
-        }
-        p.text(pos2(clock_r.center().x, vy), Align2::CENTER_CENTER, wall_clock(), mono(25.0), MUTED);
+        p.hline(r.x_range(), r.top(), Stroke::new(1.0, CARD_LINE));
+        let line = Rect::from_min_size(pos2(r.left(), r.top() + 12.0 * k), vec2(r.width(), 30.0 * k));
+        self.section_timeline(ui, line, k);
+        self.timer_row(ui, Rect::from_min_max(pos2(r.left(), line.bottom() + 6.0 * k), pos2(r.right(), r.bottom() - 4.0 * k)), s);
 
         // Messages sit above the bar for a few seconds, clear of the numbers.
         if self.status_seen.0 != self.status {
@@ -730,9 +994,224 @@ impl App {
         if !msg.is_empty() {
             let color = if self.engine_error.is_some() { BAD } else if compile_problem.as_ref() == Some(&msg) { Color32::from_rgb(255, 196, 120) } else { Color32::WHITE };
             let g = p.layout_no_wrap(msg, FontId::proportional(14.0), color);
-            let box_r = Rect::from_min_size(pos2(r.left() + 18.0, r.top() - g.size().y - 20.0), g.size() + vec2(18.0, 10.0));
+            let box_r = Rect::from_min_size(pos2(r.left() + 8.0, r.top() - g.size().y - 20.0), g.size() + vec2(18.0, 10.0));
             p.rect_filled(box_r, 6.0, Color32::from_rgba_unmultiplied(40, 40, 40, 225));
             p.galley(box_r.min + vec2(9.0, 5.0), g, color);
+        }
+    }
+
+    /// One block per section, as wide as its share of the slides, in the section's colour. A black
+    /// line marks the current slide and small ribbons the bookmarks. Click a block to go there.
+    fn section_timeline(&mut self, ui: &mut Ui, r: Rect, k: f32) {
+        let n = self.deck.frames.len();
+        if n == 0 {
+            return;
+        }
+        let talk = self.deck.talk_frames().clamp(1, n);
+        let mut starts: Vec<(String, usize)> = self.deck.sections.iter().filter(|x| x.first_frame < talk).map(|x| (x.title.clone(), x.first_frame)).collect();
+        if starts.first().is_none_or(|f| f.1 > 0) {
+            starts.insert(0, (if starts.is_empty() { "Slides" } else { "Opening" }.to_string(), 0));
+        }
+        let mut segs: Vec<(String, usize, usize, [u8; 3])> = vec![];
+        for (i, (t, a)) in starts.iter().enumerate() {
+            let b = starts.get(i + 1).map(|x| x.1).unwrap_or(talk);
+            if b > *a {
+                segs.push((t.clone(), *a, b, self.section_color(*a)));
+            }
+        }
+        if talk < n {
+            segs.push(("Backup".to_string(), talk, n, [140, 110, 70]));
+        }
+        let space = 4.0 * k;
+        let room = r.width() - space * segs.len().saturating_sub(1) as f32;
+        let p = ui.painter().clone();
+        let mut x = r.left();
+        let mut placed: Vec<(Rect, usize, usize)> = vec![];
+        let mut go = None;
+        for (i, (title, a, b, c)) in segs.iter().enumerate() {
+            let seg = Rect::from_min_size(pos2(x, r.top()), vec2(room * (b - a) as f32 / n as f32, r.height()));
+            let tip = if b - a == 1 { format!("{title}: slide {}", a + 1) } else { format!("{title}: slides {} to {}", a + 1, b) };
+            let resp = ui.interact(seg, sid(&format!("timeline-{i}")), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(format!("{tip}. Click to go there."));
+            p.rect_filled(seg, 6.0 * k, soften(*c, if resp.hovered() { 0.6 } else { 0.78 }));
+            // A name too long for its block is shortened with an ellipsis, or left out.
+            let font = FontId::proportional(15.0 * k);
+            let chars: Vec<char> = title.chars().collect();
+            let mut keep = chars.len();
+            let shown = loop {
+                let t = if keep == chars.len() { title.clone() } else { format!("{}\u{2026}", chars[..keep].iter().collect::<String>().trim_end()) };
+                if keep < 3 && keep != chars.len() {
+                    break String::new();
+                }
+                if p.layout_no_wrap(t.clone(), font.clone(), INK).size().x <= seg.width() - 14.0 * k {
+                    break t;
+                }
+                keep -= 1;
+            };
+            p.text(pos2(seg.left() + 10.0 * k, seg.center().y), Align2::LEFT_CENTER, shown, font, deepen(*c));
+            if resp.clicked() {
+                go = self.deck.slides.iter().position(|s| s.frame == *a);
+            }
+            placed.push((seg, *a, *b));
+            x = seg.right() + space;
+        }
+        let at = |f: usize, part: f32| {
+            placed.iter().find(|(_, a, b)| f >= *a && f < *b).map(|(seg, a, b)| seg.left() + seg.width() * ((f - a) as f32 + part) / (b - a) as f32)
+        };
+        for f in self.side.bookmarks.iter().copied().filter(|f| *f < n) {
+            if let Some(bx) = at(f, 0.5) {
+                let [red, green, blue] = self.section_color(f);
+                ribbon(&p, Rect::from_min_size(pos2(bx - 4.0 * k, r.top()), vec2(8.0 * k, 12.0 * k)), Color32::from_rgb(red, green, blue));
+            }
+        }
+        if let Some(hx) = at(self.frame(), 0.5) {
+            p.rect_filled(Rect::from_center_size(pos2(hx, r.center().y), vec2(3.0 * k, r.height() + 8.0 * k)), 1.5, INK);
+        }
+        if let Some(slide) = go {
+            self.jump(slide);
+        }
+    }
+
+    /// How wide `timer_controls` will be, so the row under the main panel can be laid out.
+    fn timer_width(&self, p: &Painter, s: f32) -> f32 {
+        let k = s.min(1.2);
+        let t: String = fmt_time(self.elapsed as f32).chars().map(|c| if c.is_ascii_digit() { '8' } else { c }).collect();
+        let time_w = p.layout_no_wrap(t, FontId::new(22.0 * k, FontFamily::Name("strong".into())), INK).size().x;
+        let target = self.side.target_minutes;
+        let dur = if target > 0.0 { format!("of {}", fmt_time(target * 60.0)) } else { "Set duration".to_string() };
+        let dur_w = p.layout_no_wrap(dur, FontId::proportional(18.0 * k), MUTED).size().x;
+        let btn = (32.0 * s).clamp(26.0, 40.0);
+        30.0 * k + time_w + 12.0 * k + dur_w + 16.0 * k + btn * 3.0 + 6.0
+    }
+
+    /// Time elapsed (click to pause), the duration (click to set it), and play, pause and stop,
+    /// starting at `x0` on the line `cy`.
+    fn timer_controls(&mut self, ui: &mut Ui, x0: f32, cy: f32, s: f32) {
+        let k = s.min(1.2);
+        let p = ui.painter().clone();
+        let target = self.side.target_minutes;
+        let mut x = x0;
+
+        // A small clock face.
+        let face = pos2(x + 10.0 * k, cy);
+        p.circle_stroke(face, 9.0 * k, Stroke::new(1.8 * k, MUTED));
+        p.line_segment([face, face + vec2(0.0, -5.0 * k)], Stroke::new(1.6 * k, MUTED));
+        p.line_segment([face, face + vec2(3.5 * k, 2.0 * k)], Stroke::new(1.6 * k, MUTED));
+        x += 30.0 * k;
+
+        let mut color = INK;
+        if target > 0.0 {
+            let left = target as f64 * 60.0 - self.elapsed;
+            if left < 0.0 {
+                color = BAD;
+            } else if left < target as f64 * 6.0 {
+                color = WARN;
+            }
+        }
+        let t = fmt_time(self.elapsed as f32);
+        let font = FontId::new(22.0 * k, FontFamily::Name("strong".into()));
+        // Kept as wide as its widest digits, so the rest of the row does not shuffle every second.
+        let width = p.layout_no_wrap(t.chars().map(|c| if c.is_ascii_digit() { '8' } else { c }).collect(), font.clone(), color).size().x;
+        let g = p.layout_no_wrap(t, font, color);
+        let time_r = Rect::from_min_size(pos2(x, cy - g.size().y / 2.0), vec2(width, g.size().y));
+        let tip = if self.timer_on { "Click to pause the timer" } else { "Click to start the timer" };
+        let hit = ui.interact(time_r.expand(5.0), sid("time-elapsed"), Sense::click()).on_hover_text(tip).on_hover_cursor(CursorIcon::PointingHand);
+        if hit.hovered() {
+            p.rect_filled(time_r.expand(5.0), 6.0, LEAF_SOFT);
+        }
+        p.galley(time_r.min, g, color);
+        if hit.clicked() {
+            let c = ui.ctx().clone();
+            self.run(crate::settings::Action::ToggleTimer, &c);
+        }
+        x = time_r.right() + 12.0 * k;
+
+        let dur = if target > 0.0 { format!("of {}", fmt_time(target * 60.0)) } else { "Set duration".to_string() };
+        let g = p.layout_no_wrap(dur, FontId::proportional(18.0 * k), MUTED);
+        let dur_r = Rect::from_min_size(pos2(x, cy - g.size().y / 2.0), g.size());
+        let dur_hit = ui.interact(dur_r.expand(5.0), sid("duration"), Sense::click()).on_hover_text("Click to set the talk duration").on_hover_cursor(CursorIcon::PointingHand);
+        if dur_hit.hovered() {
+            p.rect_filled(dur_r.expand(5.0), 6.0, LEAF_SOFT);
+        }
+        p.galley(dur_r.min, g, MUTED);
+        self.duration_rect = dur_r.expand(5.0);
+        if dur_hit.clicked() {
+            self.duration_open = !self.duration_open;
+        }
+        x = dur_r.right() + 16.0 * k;
+
+        let btn = (32.0 * s).clamp(26.0, 40.0);
+        let buttons = Rect::from_min_size(pos2(x, cy - btn / 2.0), vec2(btn * 3.0 + 6.0, btn));
+        let mut row = ui.new_child(UiBuilder::new().max_rect(buttons).layout(Layout::left_to_right(Align::Center)));
+        row.spacing_mut().item_spacing.x = 3.0;
+        let glyph = btn * 0.55;
+        if sized_button(&mut row, Icon::Play, self.timer_on, "Start or resume the timer", btn, glyph).clicked() {
+            self.start_timer();
+        }
+        if sized_button(&mut row, Icon::Pause, !self.timer_on && self.elapsed > 0.0, "Pause the timer", btn, glyph).clicked() {
+            self.pause_timer();
+        }
+        if sized_button(&mut row, Icon::Stop, false, "Stop and reset the timer", btn, glyph).clicked() {
+            self.stop_timer();
+        }
+    }
+
+    /// Under the sections: the pace (time left, ahead, behind or over), whether the timer is paused,
+    /// and a way to catch up when behind.
+    fn timer_row(&mut self, ui: &mut Ui, r: Rect, s: f32) {
+        let k = s.min(1.2);
+        let p = ui.painter().clone();
+        let cy = r.center().y;
+        let target = self.side.target_minutes;
+        let talk = self.deck.talk_frames().max(1);
+        let mut x = r.left();
+
+        // The pace: over time, behind or ahead of an even pace, or the time left.
+        let mut behind = 0.0;
+        if target > 0.0 && self.elapsed > 1.0 {
+            let left = target * 60.0 - self.elapsed as f32;
+            let done = self.frame() as f32 / talk as f32;
+            let should = (self.elapsed as f32 / (target * 60.0)).min(1.0);
+            let diff = (should - done) * target * 60.0;
+            let (msg, fill, ink) = if left < 0.0 {
+                (format!("{} over", fmt_time(-left)), Color32::from_rgb(246, 214, 214), BAD)
+            } else if diff.abs() > 20.0 {
+                if diff > 0.0 {
+                    behind = diff;
+                    (format!("{} behind", fmt_time(diff)), Color32::from_rgb(244, 222, 171), Color32::from_rgb(107, 74, 10))
+                } else {
+                    (format!("{} ahead", fmt_time(-diff)), LEAF_SOFT, LEAF_DARK)
+                }
+            } else {
+                (format!("{} left", fmt_time(left)), Color32::from_rgb(234, 233, 230), MUTED)
+            };
+            x = pill(&p, pos2(x, cy), false, &msg, 16.0 * k, fill, ink, None).right() + 14.0 * k;
+        }
+        if !self.timer_on && self.elapsed > 0.0 {
+            let g = p.layout_no_wrap("paused".to_string(), FontId::proportional(16.0 * k), MUTED);
+            let w = g.size().x;
+            p.galley(pos2(x, cy - g.size().y / 2.0), g, MUTED);
+            x += w + 12.0 * k;
+        }
+
+        // Behind an even pace: offer to leave out the next slides that would make up the time.
+        let f = self.frame();
+        if behind > 0.0 && f + 2 < talk {
+            let per = target * 60.0 / talk as f32;
+            let skip = ((behind / per.max(1.0)).ceil() as usize).clamp(1, 3).min(talk - f - 2);
+            let land = f + 1 + skip;
+            let text = if skip == 1 { format!("Skip slide {} to catch up?", f + 2) } else { format!("Skip slides {} to {} to catch up?", f + 2, f + 1 + skip) };
+            let g = p.layout_no_wrap(text, FontId::proportional(17.0 * k), INK);
+            let bh = (38.0 * k).min(r.height() - 4.0);
+            let br = Rect::from_min_size(pos2(r.right() - g.size().x - 32.0 * k, cy - bh / 2.0), vec2(g.size().x + 32.0 * k, bh));
+            if br.left() > x {
+                let tip = format!("Goes on to slide {}, leaving out the slides before it.", land + 1);
+                if soft_button(ui, br, "catch-up", &tip, true, false).clicked() {
+                    if let Some(slide) = self.deck.slides.iter().position(|s| s.frame == land) {
+                        self.jump(slide);
+                    }
+                }
+                p.galley(pos2(br.left() + 16.0 * k, cy - g.size().y / 2.0), g, INK);
+            }
         }
     }
 
@@ -741,7 +1220,7 @@ impl App {
             return;
         }
         let w = 262.0;
-        let at = pos2((self.duration_rect.right() - w).max(8.0), self.duration_rect.top() - 200.0);
+        let at = pos2(self.duration_rect.left().max(8.0), self.duration_rect.top() - 182.0);
         let inner = Area::new(sid("duration-popup")).order(Order::Foreground).fixed_pos(at).show(ctx, |ui| {
             Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_width(w - 20.0);
@@ -780,38 +1259,49 @@ impl App {
             return;
         }
         let s = (full.width() / 1388.0).clamp(0.72, 1.7);
-        let bottom = (84.0 * s).max(68.0);
-        let body = Rect::from_min_max(full.min + vec2(10.0, 12.0), full.max - vec2(8.0, bottom));
+        let k = s.min(1.2);
+        let pad = 16.0 * k;
+        let head_h = (54.0 * s).clamp(44.0, 72.0);
+        let bottom = (102.0 * s).clamp(88.0, 140.0);
+        let head = Rect::from_min_max(pos2(full.left() + pad, full.top()), pos2(full.right() - pad, full.top() + head_h));
+        self.head_row(ui, head, s);
+        let body = Rect::from_min_max(pos2(full.left() + pad, head.bottom() + 12.0 * k), pos2(full.right() - pad, full.bottom() - bottom - 10.0 * k));
         let aspect = self.deck.aspect.max(0.1);
-        let col = self.st.layout.split_col.unwrap_or_else(|| auto_col(body.width(), body.height() - 22.0, aspect, 8.0));
+        let nav_h = (52.0 * s).clamp(42.0, 66.0);
+        let col = self.st.layout.split_col.unwrap_or_else(|| auto_col(body.width(), body.height() - 50.0 - nav_h, aspect, 28.0));
         let x = body.left() + body.width() * col;
-        let left = Rect::from_min_max(body.min, pos2(x - 7.0, body.bottom()));
+        let left = Rect::from_min_max(body.min, pos2(x - 7.0, body.bottom() - nav_h));
         let right = Rect::from_min_max(pos2(x + 7.0, body.top()), body.max);
-        let label = 14.0 * s.min(1.2);
-        labelled_frame(ui.painter(), left, "Audience view", label, INK);
-        let slide = fit(left.shrink2(vec2(1.0, 11.0)), aspect, false);
+        let label = 14.0 * k;
+        let p = ui.painter().clone();
+        let top = card(&p, left, "Audience view", label);
+        let slide = fit(Rect::from_min_max(left.min + vec2(14.0, top), left.max - vec2(14.0, 12.0)), aspect, false);
         let cur = self.cur;
         self.paint_stage(ui, slide);
+        p.rect_stroke(slide, 2.0, Stroke::new(1.0, CARD_LINE), StrokeKind::Outside);
         self.slide_input(ui, slide, cur, "split-slide");
+        self.nav_row(ui, Rect::from_min_max(pos2(left.left(), left.bottom()), pos2(left.right(), body.bottom())), s);
 
-        let next_h = (right.height() * 0.32).min(right.width() / aspect);
-        let row = self.st.layout.split_row.unwrap_or(1.0 - (next_h + 18.0) / right.height().max(1.0));
+        let next_h = (right.height() * 0.32).min((right.width() - 28.0) / aspect) + label + 34.0;
+        let row = self.st.layout.split_row.unwrap_or(1.0 - (next_h + 14.0) / right.height().max(1.0));
         let cut = right.top() + right.height() * row;
         let notes = Rect::from_min_max(right.min, pos2(right.right(), cut));
-        let next = Rect::from_min_max(pos2(right.left(), cut + 18.0), right.max);
-        labelled_frame(ui.painter(), notes, "Notes", label, INK);
-        self.notes_panel(ui, notes.shrink2(vec2(0.0, 10.0)), (notes.width() / 1000.0).clamp(0.5, 1.1));
-        labelled_frame(ui.painter(), next, "Next slide", label, INK);
-        self.paint_next(ui, fit(next.shrink2(vec2(0.0, 10.0)), aspect, false));
+        let next = Rect::from_min_max(pos2(right.left(), cut + 14.0), right.max);
+        let top = card(&p, notes, "Notes", label);
+        self.notes_panel(ui, Rect::from_min_max(notes.min + vec2(4.0, top), notes.max - vec2(4.0, 6.0)), (notes.width() / 1000.0).clamp(0.5, 1.1));
+        let top = card(&p, next, "Next slide", label);
+        let next_rect = fit(Rect::from_min_max(next.min + vec2(14.0, top), next.max - vec2(14.0, 12.0)), aspect, false);
+        self.paint_next(ui, next_rect);
+        p.rect_stroke(next_rect, 2.0, Stroke::new(1.0, CARD_LINE), StrokeKind::Outside);
 
         let handle = Rect::from_center_size(pos2(x, body.center().y), vec2(12.0, body.height()));
-        let a = drag_handle(ui, "split-col", handle, true, true);
-        let b = drag_handle(ui, "split-row", Rect::from_center_size(pos2(right.center().x, cut + 9.0), vec2(right.width(), 12.0)), false, false);
+        let a = drag_handle(ui, "split-col", handle, true, false);
+        let b = drag_handle(ui, "split-row", Rect::from_center_size(pos2(right.center().x, cut + 7.0), vec2(right.width() * 0.5, 12.0)), false, false);
         let moved = a.apply(&mut self.st.layout.split_col, col, a.delta.x / body.width()) | b.apply(&mut self.st.layout.split_row, row, b.delta.y / right.height().max(1.0));
         if moved {
             self.save_layout();
         }
-        self.bottom_bar(ui, Rect::from_min_max(pos2(full.left(), full.bottom() - bottom), full.max), s);
+        self.bottom_bar(ui, Rect::from_min_max(pos2(full.left() + pad, full.bottom() - bottom), pos2(full.right() - pad, full.bottom())), s);
         let ctx = ui.ctx().clone();
         self.peek_popup(&ctx);
     }

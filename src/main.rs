@@ -24,6 +24,9 @@ mod ui_present;
 mod ui_start;
 mod ui_studio;
 mod update;
+mod video;
+mod video_prep;
+mod ui_video;
 
 use app::{App, Args};
 use std::path::PathBuf;

@@ -1,6 +1,6 @@
 [package]
 name = "texora"
-version = "1.4.1"
+version = "1.5.0"
 edition = "2021"
 description = "TeXora: a LaTeX-native presenter for Beamer and PDF slides"
 license = "PolyForm-Noncommercial-1.0.0"
@@ -15,7 +15,7 @@ path = "src/main.rs"
 eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "wayland", "x11", "clipboard", "links", "system_fonts"] }
 egui = "0.37"
 pdfium-render = "0.9.5"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "gif", "jpeg"] }
 rfd = "0.17"
 serde = { version = "1", features = ["derive"] }
 unicode-bidi = "0.3"
@@ -24,6 +24,10 @@ serde_json = "1"
 ureq = { version = "3", features = ["json"] }
 display-info = "0.5"
 dirs = "7"
+# Video inside slides: GIFs are decoded by the image crate. TeXora contains no other video decoder;
+# MP4 and other formats play through ffmpeg or VLC that the person installed (src/video.rs). md-5 names
+# the posters.
+md-5 = "0.11"
 
 # Fonts for other writing systems (Arabic, Hebrew, Chinese, Japanese, Korean, Hindi, Thai...) come from
 # the computer itself. On Linux, fontconfig is opened when the program runs instead of being linked, so

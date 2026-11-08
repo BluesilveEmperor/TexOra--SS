@@ -2,6 +2,30 @@
 
 All notable changes to TeXora. The newest version is first.
 
+## 1.5.0
+
+### Security
+
+- ffmpeg opens a clip with `-nostdin -protocol_whitelist file` and a list of real video formats only, so a file that is really a playlist or a concat list cannot make ffmpeg read other files or web addresses. Tested with such files: plain ffmpeg follows them, TeXora's ffmpeg refuses them.
+- VLC gets the clip's full path after `--`, so a file name starting with `-` is never read as an option, and only files that really are videos (from their first bytes, not their name): never a playlist.
+- Which player runs, and where it is, comes only from your own Settings. A presentation, its `.tex` file, a PDF or anything in its folder can never set the program or add arguments; this is tested.
+
+### New
+
+- Videos and GIFs in your slides: `\usepackage{texoravideo}` and `\includevideo[width=0.5\textwidth]{clip.mp4}`. TeXora ships the LaTeX package and finds it by itself when it compiles. A second optional argument takes `autoplay`, `loop`, `posterat=<percent>` and `poster=<image>`.
+- **GIFs play by themselves.** **MP4 playback uses VLC or ffmpeg installed on your computer**: with ffmpeg the clip plays inside the slide, with VLC in VLC's own window. TeXora contains no video decoder and never downloads or installs one.
+- Settings > Video chooses the player (Auto, ffmpeg, VLC or Off), with a path and a **Test** button for each.
+- A video that needs a player when none is installed says "This video needs VLC or ffmpeg installed on your computer.", with **Get VLC**, **Get ffmpeg** and **Copy install command**. TeXora only opens the pages and copies the command; it never runs it.
+- Before compiling, TeXora makes each clip's poster in a `texora-video` folder (again only when the clip changes; a video's poster needs ffmpeg), so every PDF viewer shows the poster; a click in TeXora plays or pauses the clip, and another slide stops it and its ffmpeg.
+- A missing file, a file that is not a video or a path outside the presentation's folder shows a message over the poster and under Problems.
+- A video can be in the `.tex` file's folder or in any folder inside it; a video in a folder is written with the folder name, as in `\includevideo{videos/clip.mp4}`. "Video not found" says this in plain words.
+- One poster per video, however often it is used; posters no longer used are removed.
+- A new template, **Video Guide**, explains `\includevideo` slide by slide: what you need, a video, a looping GIF, every option, posters, overlays and what to do when a clip does not play. Its sample video and GIF are saved in a `media` folder beside the new file.
+
+### Fixed
+
+- The control bar under an animation (first, previous, play/pause, next, last) works again: its buttons now get the click, instead of the slide underneath taking it.
+
 ## 1.4.1
 
 ### Fixed

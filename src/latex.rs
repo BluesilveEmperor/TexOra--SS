@@ -187,12 +187,19 @@ pub fn compile(tex: &Path, engine: Engine) -> CompileResult {
     };
     let file = root.file_name().unwrap().to_owned();
     let stem = root.file_stem().unwrap().to_owned();
+    // Videos first: their posters must be there when LaTeX looks for them. TeXora's own packages
+    // (texoravideo) are found through TEXINPUTS; nothing is copied into the presentation's folder.
+    let videos = crate::video_prep::prepare(&root);
+    let texinputs = crate::video_prep::tex_dir().ok().map(|d| crate::video_prep::texinputs(&d));
     let mut pass = 0;
     let mut note = String::new();
     let (ok, log) = loop {
         pass += 1;
         let mut c = Command::new(&prog);
         c.current_dir(&dir).args(["-interaction=nonstopmode", "-file-line-error", "-synctex=1"]).arg(&file);
+        if let Some(t) = &texinputs {
+            c.env("TEXINPUTS", t);
+        }
         let run = run_with_timeout(c, Duration::from_secs(180));
         let log = String::from_utf8_lossy(&std::fs::read(&logf).unwrap_or_default()).to_string();
         let ran = match run {
@@ -231,8 +238,13 @@ pub fn compile(tex: &Path, engine: Engine) -> CompileResult {
         }
         break (true, log);
     };
-    let problems = parse_log(&log);
+    let mut problems = parse_log(&log);
     let has_error = problems.iter().any(|p| p.is_error);
+    // A clip that cannot be played does not stop the slides; it is listed, at its \includevideo.
+    for (f, line, message) in videos.problems {
+        let file = f.strip_prefix(&dir).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| f.to_string_lossy().to_string());
+        problems.push(Problem { file, line: Some(line), message, is_error: false });
+    }
     CompileResult { tab: 0, ok: ok && !has_error && pdf.exists(), pdf, problems, log, seconds: start.elapsed().as_secs_f32(), engine, note }
 }
 
@@ -444,6 +456,9 @@ pub fn requirements(src: &str, engine: Engine) -> Vec<Requirement> {
     for (f, _) in commands(&clean, "\\includegraphics") {
         add(ReqKind::File, f, exts(f, &["pdf", "png", "jpg", "jpeg", "eps"]), "Check the file name and folder.".to_string());
     }
+    for u in crate::video_prep::uses_in(&clean, std::path::Path::new("")) {
+        add(ReqKind::File, &u.path, vec![u.path.clone()], "Put the video in the .tex file's folder, or in a folder inside it written in the name ({videos/clip.mp4}).".to_string());
+    }
     for cmd in ["\\input", "\\include"] {
         for (f, _) in commands(&clean, cmd) {
             add(ReqKind::File, f, exts(f, &["tex"]), "Check the file name and folder.".to_string());
@@ -476,6 +491,8 @@ pub fn check_requirements(src: &str, engine: Engine, dir: &Path) -> (Vec<Require
         r.found = match r.kind {
             ReqKind::Tool => find_tool(&r.candidates[0]).is_some(),
             ReqKind::File => r.candidates.iter().any(|c| dir.join(c).is_file()),
+            // Built into TeXora: found through TEXINPUTS when TeXora compiles.
+            ReqKind::Package if r.name == "texoravideo" => true,
             _ => match &kpse {
                 Some(k) => {
                     let out = Command::new(k).args(&r.candidates).output();

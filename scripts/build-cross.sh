@@ -24,7 +24,7 @@ case "$KIND" in
     python3 scripts/get-linux-libs.py .toolchain/linux-libs
     # glibc 2.31 means it also runs on Linux systems several years old.
     CARGO_ENCODED_RUSTFLAGS="-Lnative=$PWD/.toolchain/linux-libs/$ARCH" cargo zigbuild --release --locked --target "$TRIPLE.2.31"
-    cp "target/$TRIPLE/release/TeXora" "target/$TRIPLE/release/libpdfium.so" README.md CREDITS.md LICENSE assets/TeXora.desktop "$STAGE/$P/"
+    cp "target/$TRIPLE/release/TeXora" "target/$TRIPLE/release/libpdfium.so" README.md CREDITS.md THIRD-PARTY-LICENSES.md LICENSE assets/TeXora.desktop "$STAGE/$P/"
     cp assets/icon.png "$STAGE/$P/TeXora.png"
     # No hidden macOS "._" metadata files in a Linux package.
     COPYFILE_DISABLE=1 tar -C "$STAGE" -czf "$OUT/$P.tar.gz" "$P"
@@ -32,7 +32,7 @@ case "$KIND" in
     ;;
   windows-*)
     cargo zigbuild --release --locked --target "$TRIPLE"
-    cp "target/$TRIPLE/release/TeXora.exe" "target/$TRIPLE/release/pdfium.dll" README.md CREDITS.md LICENSE "$STAGE/$P/"
+    cp "target/$TRIPLE/release/TeXora.exe" "target/$TRIPLE/release/pdfium.dll" README.md CREDITS.md THIRD-PARTY-LICENSES.md LICENSE "$STAGE/$P/"
     # No hidden macOS "._" metadata files in a Windows package.
     (cd "$STAGE" && ditto -c -k --norsrc --noextattr --noqtn --keepParent "$P" "$OUT/$P.zip")
     BIN="$STAGE/$P/TeXora.exe" ; LIB="$STAGE/$P/pdfium.dll" ; ARCHIVE="$P.zip"

@@ -1,0 +1,73 @@
+%% texoravideo.sty -- video and GIFs in LaTeX slides, played by TeXora.
+%%
+%% TeXora ships this package and finds it by itself when it compiles; there is no package to install or
+%% copy. GIFs play in TeXora by themselves; MP4 playback uses VLC or ffmpeg installed on your computer.
+%%
+%%   \usepackage{texoravideo}
+%%   \includevideo[<graphics options>][<video options>]{<file>}
+%%
+%% <graphics options> go to \includegraphics as they are (width=..., height=..., scale=...).
+%% <video options>, read with xkeyval:
+%%   autoplay[=true|false]  play when the slide is shown (default false)
+%%   loop[=true|false]      start again at the end (default false)
+%%   mute[=true|false]      no sound (default false)
+%%   posterat=<percent>     poster from this far into the clip, 0-99 (default 0, the first frame);
+%%                          a video has one poster, so the first posterat given for it counts
+%%   poster=<image>         your own poster picture instead of a frame of the clip
+%%
+%% <file> is read exactly as written, from the presentation's folder: {clip.mp4} is beside the .tex
+%% file, {videos/clip.mp4} is in its videos folder (any folder name inside it works).
+%%
+%% Before LaTeX runs, TeXora finds every \includevideo, checks the file and makes its poster in the
+%% folder texora-video/: one poster per video, named by the MD5 of the path as written, so this
+%% package can name it too. On the page the poster is an ordinary picture, which every PDF viewer
+%% shows; over it is a link to "texora-video:<options>:<path>", which TeXora plays inside the slide.
+%% Other viewers do nothing with such a link (Acrobat may ask about it).
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{texoravideo}[2026/11/08 v1.0 Video in slides, played by TeXora]
+\RequirePackage{graphicx}
+\RequirePackage{xkeyval}
+\RequirePackage{pdftexcmds}
+\RequirePackage{iftex}
+\RequirePackage{hyperref}
+
+\def\tv@dir{texora-video}
+
+% The MD5 of the path's characters as UTF-8, in capitals, the same in every engine. LuaTeX's
+% \pdf@mdfivesum hashes accented letters differently, so there Lua does it.
+\ifluatex
+  \def\tv@mdfive#1{\directlua{tex.sprint(string.upper(md5.sumhexa("\luaescapestring{\detokenize{#1}}")))}}
+\else
+  \def\tv@mdfive#1{\pdf@mdfivesum{\detokenize{#1}}}
+\fi
+
+\define@boolkey{texoravideo}[tv@]{autoplay}[true]{}
+\define@boolkey{texoravideo}[tv@]{loop}[true]{}
+\define@boolkey{texoravideo}[tv@]{mute}[true]{}
+\define@key{texoravideo}{posterat}{\edef\tv@at{\number\numexpr#1\relax}}
+\define@key{texoravideo}{poster}{\def\tv@poster{#1}}
+
+\NewDocumentCommand\includevideo{O{} O{} m}{%
+  \begingroup
+  \tv@autoplayfalse\tv@loopfalse\tv@mutefalse
+  \def\tv@at{0}\def\tv@poster{}%
+  \setkeys{texoravideo}{#2}%
+  % The path exactly as written, from the presentation's folder.
+  \def\tv@rel{#3}%
+  \edef\tv@relstr{\expandafter\detokenize\expandafter{\tv@rel}}%
+  \edef\tv@hash{\expandafter\tv@mdfive\expandafter{\tv@rel}}%
+  \edef\tv@made{\tv@dir/\tv@hash.jpg}%
+  % Your poster if it exists, else the one TeXora made, else a plain placeholder.
+  \def\tv@image{texoravideo-placeholder.png}%
+  \IfFileExists{\tv@made}{\let\tv@image\tv@made}{}%
+  \ifx\tv@poster\@empty\else
+    \IfFileExists{\tv@poster}{\let\tv@image\tv@poster}%
+      {\PackageWarning{texoravideo}{Poster `\tv@poster' not found; using a frame of the clip}}%
+  \fi
+  \edef\tv@flags{a\iftv@autoplay1\else0\fi l\iftv@loop1\else0\fi m\iftv@mute1\else0\fi p\tv@at}%
+  \hypersetup{hidelinks}%
+  \href{texora-video:\tv@flags:\tv@relstr}{\includegraphics[#1]{\tv@image}}%
+  \endgroup
+}
+
+\endinput

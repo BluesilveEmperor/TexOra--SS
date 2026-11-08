@@ -285,6 +285,15 @@ pub struct App {
     pub anim_pending: HashSet<pdf::FrameReq>,
     /// The page whose animations were last started, so a new slide starts its own.
     pub anim_page: Option<usize>,
+    /// texoravideo clips playing or paused on the slide on show; another slide stops them.
+    pub players: Vec<crate::ui_video::Player>,
+    /// The document generation and slide (Beamer frame) the players belong to.
+    pub video_frame: Option<(u64, usize)>,
+    pub player_seq: u64,
+    /// True while the audience window is being drawn: it shows clips but no messages or buttons.
+    pub painting_audience: bool,
+    /// Where a press on a clip began, to tell a click on it.
+    pub video_press: Option<egui::Pos2>,
     /// In the studio, show the slide for the line the cursor is on.
     pub follow_cursor: bool,
     pub tex_checked: Instant,
@@ -353,6 +362,8 @@ impl App {
         let display = displays.iter().position(|d| !d.is_primary).unwrap_or(0);
         let st = Settings::load();
         ctx.set_zoom_factor(st.ui_scale);
+        // Which installed video tool (if any) plays videos that are not GIFs.
+        crate::video::configure(&st.video_player, &st.ffmpeg_path, &st.vlc_path);
         let mut app = App {
             tabs: vec![Tab::blank(1)],
             active: 0,
@@ -448,6 +459,11 @@ impl App {
             anim_cache: HashMap::new(),
             anim_pending: HashSet::new(),
             anim_page: None,
+            players: vec![],
+            video_frame: None,
+            player_seq: 0,
+            painting_audience: false,
+            video_press: None,
             follow_cursor: true,
             tex_checked: Instant::now(),
             search_q: String::new(),
@@ -1062,6 +1078,7 @@ impl App {
     /// Runs the animations of the slide on show. As in Acrobat: a slide's animations that play by
     /// themselves start from the first frame when it is shown, and stop when another slide is shown.
     fn animate(&mut self, ctx: &Context) {
+        self.video_slide_changed(ctx);
         let Some(doc) = &self.doc else { return };
         let mut to_play: Vec<crate::media::MediaClip> = vec![];
         let page = self.deck.slides.get(self.live()).map(|s| s.page);
@@ -1966,7 +1983,7 @@ impl App {
     pub fn script_report(&self) -> String {
         let ink: usize = self.side.ink.values().map(Vec::len).sum();
         format!(
-            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} packages={} recent={} toast={} skipped={:?} draft={:?} line={} log_open={} wrap={} follow={} anims={:?}",
+            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} packages={} recent={} toast={} skipped={:?} draft={:?} line={} log_open={} wrap={} follow={} anims={:?} videos={:?}",
             self.cur + 1,
             self.frame() + 1,
             self.deck.slides.get(self.cur).map(|s| s.step + 1).unwrap_or(0),
@@ -2017,6 +2034,14 @@ impl App {
                 v.sort();
                 v
             },
+            // Each clip's player: slide, file name, playing, seconds in, error.
+            self.players
+                .iter()
+                .map(|p| {
+                    let s = p.shared.lock().map(|s| (s.playing, (s.at * 10.0).round() / 10.0, s.error.clone())).unwrap_or_default();
+                    (p.frame_no, p.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), s.0, s.1, s.2)
+                })
+                .collect::<Vec<_>>(),
         )
     }
 

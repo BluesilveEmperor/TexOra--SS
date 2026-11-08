@@ -2,7 +2,7 @@
 
 To use TeXora from a terminal, choose **? > Command-line tool**. To see what this computer has for TeXora, choose **? > System check**.
 
-Open a PDF or a LaTeX file from the start page, or drop one on the window. Choose **New LaTeX presentation** to pick one of eight templates, each with its own colours and style: Classic Green, Midnight, Minimal White, Conference and Sunrise, and three animated ones, Motion Lab, Flipbook and Media Studio, whose slides show animations, GIF frames and a video clip playing. Write your presentation in your own LaTeX editor: TeXora rebuilds the slides every time you save it. Recent files stay on the start page.
+Open a PDF or a LaTeX file from the start page, or drop one on the window. Choose **New LaTeX presentation** to pick one of nine templates, each with its own colours and style: Classic Green, Midnight, Minimal White, Conference and Sunrise, and four animated ones, Motion Lab, Flipbook, Media Studio and Video Guide, whose slides show animations, GIF frames and video clips playing. **Video Guide** explains `\includevideo` slide by slide, with a video and a GIF that play inside the slides. Write your presentation in your own LaTeX editor: TeXora rebuilds the slides every time you save it. Recent files stay on the start page.
 
 ## Giving a talk
 
@@ -84,6 +84,8 @@ TeXora needs TeX Live, MacTeX or MiKTeX installed to compile. It picks pdfLaTeX,
 ## Animations and videos
 
 Animations made with the LaTeX **animate** package play on the slide, as in Adobe Acrobat. Those set to `autoplay` start when their slide is shown and stop when you move on; `loop` and `palindrome` work too, at the animation's own speed. Click an animation to play or pause it. In the presenter view, the bar under it has first, previous, play/pause, next and last frame buttons, and the audience sees the same frame.
+
+Videos and GIFs can also play **inside the slide**. GIFs play by themselves; **MP4 playback uses VLC or ffmpeg installed on your computer** (ffmpeg plays inside the slide, VLC in its own window; choose in Settings > Video, which has a Test button). TeXora contains no video decoder and never installs one; when a video needs a player and none is found, it says so, with Get VLC, Get ffmpeg and Copy install command. Write `\usepackage{texoravideo}` and `\includevideo[width=0.5\textwidth]{clip.mp4}` (TeXora finds the package by itself). A second optional argument takes `autoplay`, `loop`, `posterat=25` or `poster=cover.png`. The video must be in the `.tex` file's folder or a folder inside it; if it is in a folder, write the folder name too, as in `{videos/clip.mp4}`. When compiling, TeXora makes one poster per video in a `texora-video` folder, so every PDF viewer shows the poster; in TeXora a click plays or pauses the clip and another slide stops it. Files that are not videos, files outside the presentation's folder, and videos not found show a message over the poster.
 
 Video clips added with `\movie` (multimedia) or `\includemedia` (media9) show a play button on your screen. Click the clip to play it in your computer's video player; clips set to start by themselves open when their slide is shown while the audience window is open. Keep a `\movie` file in the same folder as the presentation.
 

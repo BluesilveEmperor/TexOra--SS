@@ -1,0 +1,273 @@
+%% TeXora template: Video Guide. Navy and gold 16:9 slides that show, and explain, videos and GIFs
+%% playing inside the slides.
+%%
+%% What you need:
+%%   - TeXora. The texoravideo package is built in: TeXora finds it by itself when it compiles, so
+%%     there is no package to install or copy.
+%%   - For MP4 and other videos: VLC or ffmpeg installed on your computer. MP4 playback uses VLC or
+%%     ffmpeg installed on your computer (ffmpeg plays inside the slide and makes posters; VLC plays
+%%     in its own window). GIFs need nothing. TeXora contains no video decoder.
+%%   - In the preamble:  \usepackage{texoravideo}  and  \hypersetup{hidelinks}
+%%   - Your clips: video files (such as MP4) or GIFs, kept in one of two places:
+%%       in the same folder as this .tex file, or in a folder inside it (any name).
+%%     If the clip is in a folder, write the folder name too: {media/clip.mp4}, {videos/clip.mp4}.
+%%     This template brings two, in its media folder: media/sample-video.mp4 and media/sample-loop.gif.
+%%   - If a clip is in neither place, TeXora says so over its poster and under Problems.
+%%
+%% Use:  \includevideo[<graphics options>][<video options>]{<file>}
+%%   <graphics options> go to \includegraphics as they are: width=..., height=..., scale=...
+%%   <video options>: autoplay, loop, posterat=<percent>, poster=<picture>
+%%
+%% When TeXora compiles, it makes each video's poster (a picture of it) in the folder texora-video/:
+%% one poster per video, however often it is used. Every PDF viewer shows the poster; TeXora plays the
+%% clip when you click it.
+%% Change the colours on the \definecolor lines below; everything else follows them.
+% !TEX program = pdflatex
+\documentclass[aspectratio=169]{beamer}
+\usetheme{default}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{booktabs}
+\usepackage{texoravideo}
+\hypersetup{hidelinks}
+\definecolor{navy}{RGB}{22,50,92}
+\definecolor{gold}{RGB}{233,180,76}
+\definecolor{mist}{RGB}{238,242,248}
+\setbeamercolor{structure}{fg=navy}
+\setbeamercolor{frametitle}{bg=navy,fg=white}
+\setbeamercolor{title}{fg=white}
+\setbeamercolor{subtitle}{fg=gold}
+\setbeamercolor{author}{fg=white}
+\setbeamercolor{institute}{fg=mist}
+\setbeamercolor{date}{fg=mist}
+\setbeamercolor{block title}{bg=gold,fg=navy}
+\setbeamercolor{block body}{bg=mist}
+\setbeamercolor{item}{fg=gold!80!black}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{itemize items}[circle]
+\setbeamertemplate{frametitle}{%
+  \nointerlineskip\begin{beamercolorbox}[wd=\paperwidth,ht=3ex,dp=1.4ex,leftskip=1.2em]{frametitle}%
+    \usebeamerfont{frametitle}\insertframetitle\end{beamercolorbox}}
+\setbeamertemplate{footline}{%
+  \leavevmode\hbox{\begin{beamercolorbox}[wd=\paperwidth,ht=2.2ex,dp=1ex,right]{frametitle}%
+    \insertframenumber\,/\,\inserttotalframenumber\hspace*{1.5em}\end{beamercolorbox}}}
+\setbeameroption{show notes on second screen=right}
+
+% Code on a slide, in a small typewriter font.
+\newcommand{\code}[1]{{\small\ttfamily #1}}
+
+\title{Video Guide}
+\subtitle{Videos and GIFs that play inside your slides}
+\author{Your Name}
+\institute{Your Institution}
+\date{\today}
+
+\begin{document}
+
+{\setbeamercolor{background canvas}{bg=navy}
+\begin{frame}[plain]
+  \vfill
+  \begin{center}
+    {\usebeamerfont{title}\usebeamercolor[fg]{title}\Huge\inserttitle\par}
+    \vspace{0.6em}
+    {\usebeamercolor[fg]{subtitle}\Large\insertsubtitle\par}
+    \vspace{2em}
+    {\usebeamercolor[fg]{author}\insertauthor\par}
+    {\usebeamercolor[fg]{institute}\small\insertinstitute\quad\insertdate\par}
+  \end{center}
+  \vfill
+\end{frame}}
+\note{This deck explains itself: each slide shows one way to use \textbackslash includevideo. Replace the clips in the media folder with your own.}
+
+\begin{frame}[fragile]{What you need}
+  \begin{columns}[T]
+    \begin{column}{0.5\textwidth}
+      \begin{itemize}
+        \item \textbf{TeXora}: the \code{texoravideo} package is built in.
+        \item \textbf{For MP4}: VLC or ffmpeg installed on your computer. GIFs need nothing.
+        \item \textbf{Two lines} in the preamble:
+      \end{itemize}
+\begin{semiverbatim}\small
+\textbackslash{}usepackage\{texoravideo\}
+\textbackslash{}hypersetup\{hidelinks\}
+\end{semiverbatim}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      \begin{itemize}
+        \item \textbf{Your clips}: MP4 (or another video file), or GIF.
+        \item Kept in \textbf{this file's folder}, or in a \textbf{folder inside it}.
+        \item \textbf{Compile in TeXora}: it makes one poster per video in \code{texora-video/}.
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+\note{GIFs play by themselves. MP4 playback uses VLC or ffmpeg installed on your computer: choose it in Settings, Video. TeXora contains no video decoder and never installs one.}
+
+\begin{frame}[fragile]{A video}
+  \begin{columns}[c]
+    \begin{column}{0.55\textwidth}
+      \includevideo[width=\linewidth][posterat=30]{media/sample-video.mp4}
+    \end{column}
+    \begin{column}{0.42\textwidth}
+\begin{semiverbatim}\footnotesize
+\textbackslash{}includevideo
+  [width=\textbackslash{}linewidth]
+  [posterat=30]
+  \{media/sample-video.mp4\}
+\end{semiverbatim}
+      \begin{itemize}
+        \item \textbf{Click} to play, click again to pause.
+        \item \code{posterat=30}: the poster is the picture 30\,\% of the way in.
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+\note{Click the clip to play it. Going to another slide stops it.}
+
+\begin{frame}[fragile]{A GIF that loops}
+  \begin{columns}[c]
+    \begin{column}{0.55\textwidth}
+      \centering
+      \includevideo[height=4.2cm][loop,autoplay]{media/sample-loop.gif}
+    \end{column}
+    \begin{column}{0.42\textwidth}
+\begin{semiverbatim}\footnotesize
+\textbackslash{}includevideo
+  [height=4.2cm]
+  [loop,autoplay]
+  \{media/sample-loop.gif\}
+\end{semiverbatim}
+      \begin{itemize}
+        \item GIFs work the same way as videos: no splitting into frames.
+        \item \code{autoplay} starts it with the slide; \code{loop} plays it again and again.
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Both at once}
+  \begin{columns}[c]
+    \begin{column}{0.48\textwidth}
+      \includevideo[width=\linewidth]{media/sample-video.mp4}
+      \par\smallskip\centering\small A video: click to play
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \centering
+      \includevideo[width=0.85\linewidth][loop,autoplay]{media/sample-loop.gif}
+      \par\smallskip\small A GIF that starts by itself
+    \end{column}
+  \end{columns}
+\end{frame}
+\note{Any number of clips can share a slide. Each one plays and pauses on its own.}
+
+\begin{frame}{The two optional arguments}
+  \centering
+  \code{\textbackslash includevideo[\emph{graphics options}][\emph{video options}]\{\emph{file}\}}
+  \par\bigskip
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{Graphics options} & go to \code{\textbackslash includegraphics} as they are \\
+    \code{width=0.5\textbackslash textwidth} & the size on the slide \\
+    \code{height=5cm}, \code{scale=0.5} & \\
+    \midrule
+    \textbf{Video options} & \\
+    \code{autoplay} & plays as soon as the slide is shown \\
+    \code{loop} & starts again at the end \\
+    \code{posterat=25} & poster from 25\,\% of the way in (default: first frame) \\
+    \code{poster=cover.png} & your own poster picture \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Where clips can be}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \begin{block}{In the same folder as the .tex file}
+        \code{talk.tex}\\
+        \code{clip.mp4}\par\smallskip
+        \code{\textbackslash includevideo\{clip.mp4\}}
+      \end{block}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \begin{block}{In a folder inside it}
+        \code{talk.tex}\\
+        \code{videos/clip.mp4}\par\smallskip
+        \code{\textbackslash includevideo\{videos/clip.mp4\}}
+      \end{block}
+    \end{column}
+  \end{columns}
+  \par\medskip
+  \begin{itemize}
+    \item Any folder name works. If the clip is in a folder, \textbf{write the folder name too}.
+    \item A clip that is not where its name says: TeXora writes \emph{Video not found} over its
+      poster and under \textbf{Problems}.
+  \end{itemize}
+\end{frame}
+\note{The path is read exactly as written, from the folder of the .tex file.}
+
+\begin{frame}{Posters}
+  \begin{block}{What every viewer shows}
+    The poster is an ordinary picture, so every PDF viewer shows it. Only TeXora plays the clip;
+    other viewers do nothing when it is clicked.
+  \end{block}
+  \begin{itemize}
+    \item TeXora makes \textbf{one poster per video} in \code{texora-video/} when it compiles, however
+      often the video is used, and makes it again only when the clip changes.
+    \item A video used several times has one \code{posterat}: the first one given counts.
+    \item \code{poster=cover.png} uses your picture. If that file is missing, a picture of the clip
+      is used instead.
+    \item Keep \code{texora-video/} beside the PDF, so the clips still play when you open it later.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Overlays keep playing}
+  \begin{columns}[c]
+    \begin{column}{0.5\textwidth}
+      \includevideo[width=\linewidth]{media/sample-video.mp4}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      \begin{itemize}
+        \item Start the clip, then go on to the next step.\pause
+        \item It keeps playing on every step of the same slide.\pause
+        \item Another slide stops it.
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+\note{Steps made with \textbackslash pause, \textbackslash only or overlays count as the same slide.}
+
+\begin{frame}{If a clip does not play}
+  TeXora writes the reason over the poster on your screen (never on the audience's), and lists it
+  under \textbf{Problems} at the line of the \code{\textbackslash includevideo}.
+  \par\medskip
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{Message} & \textbf{What to do} \\
+    \midrule
+    Video not found & check the name, and the folder name if it is in a folder \\
+    Not a video & use a video file or a GIF \\
+    Needs VLC or ffmpeg & install one: \emph{Get VLC} or \emph{Get ffmpeg} \\
+    Not played & keep it inside the presentation's folder \\
+    \bottomrule
+  \end{tabular}
+  \par\medskip
+  \small Names may have spaces and accents, but not \code{\%} or \code{\#}.
+  Web addresses, absolute paths and \code{..} are not played.
+\end{frame}
+
+\begin{frame}{Your turn}
+  \begin{enumerate}
+    \item Put your clips in this file's folder, or in a folder inside it.
+    \item Change the names in the \code{\textbackslash includevideo} lines, with the folder if there is one.
+    \item Save: TeXora compiles, makes the posters and the clips are ready to play.
+  \end{enumerate}
+  \par\bigskip
+  \begin{block}{Good to know}
+    GIFs play by themselves; MP4 playback uses VLC or ffmpeg installed on your computer. Sound is not
+    played yet. With ffmpeg, clips play on your screen and the audience's at the same time.
+  \end{block}
+\end{frame}
+\note{Thank the audience and invite questions.}
+
+\end{document}

@@ -253,6 +253,12 @@ pub struct Settings {
     pub editor_size: f32,
     /// The LaTeX studio's editor wraps long lines at its width instead of scrolling sideways.
     pub editor_wrap: bool,
+    /// What plays videos that are not GIFs: "auto", "ffmpeg", "vlc" or "off". Only tools the person
+    /// installed are used; TeXora contains none.
+    pub video_player: String,
+    /// Where ffmpeg and VLC are, when not found by themselves; empty means "find it".
+    pub ffmpeg_path: String,
+    pub vlc_path: String,
     /// Look for a newer version when TeXora starts.
     pub check_updates: bool,
     /// A newer version the speaker chose to skip: its update notice is not shown again.
@@ -277,6 +283,9 @@ impl Default for Settings {
             notes_in_tex: true,
             editor_size: 14.0,
             editor_wrap: false,
+            video_player: "auto".to_string(),
+            ffmpeg_path: String::new(),
+            vlc_path: String::new(),
             check_updates: true,
             skipped_update: String::new(),
             last_template: String::new(),

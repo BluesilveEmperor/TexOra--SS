@@ -12,6 +12,8 @@ mkdir -p "$OUT"
 
 echo "== Making icons from assets/icon.png"
 python3 scripts/make-icons.py
+echo "== No video decoder or codec inside, and the licence list up to date"
+python3 scripts/third-party.py
 echo "== Testing the code"
 cargo test --locked
 echo "== Keeps working while hidden"
@@ -36,6 +38,9 @@ done
 echo "== Linux .deb installers"
 python3 scripts/make-deb.py linux-x64
 python3 scripts/make-deb.py linux-arm64
+
+echo "== No ffmpeg, VLC or codec library in any package"
+sh scripts/check-no-codecs.sh "$OUT"
 
 (cd "$OUT" && shasum -a 256 TeXora-*.zip TeXora-*.tar.gz TeXora-*.dmg texora_*.deb > SHA256SUMS.txt)
 

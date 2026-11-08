@@ -121,7 +121,7 @@ jobs:
           $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
           $p = "TeXora-$v-windows-x64"
           New-Item -ItemType Directory -Force "stage/$p", "dist/$v" | Out-Null
-          Copy-Item target/release/TeXora.exe, target/release/pdfium.dll, README.md, CREDITS.md, LICENSE "stage/$p/"
+          Copy-Item target/release/TeXora.exe, target/release/pdfium.dll, README.md, CREDITS.md, THIRD-PARTY-LICENSES.md, LICENSE "stage/$p/"
           Compress-Archive -Path "stage/$p" -DestinationPath "dist/$v/$p.zip"
           "PKG=$p" | Out-File -Append $env:GITHUB_ENV
           "VER=$v" | Out-File -Append $env:GITHUB_ENV

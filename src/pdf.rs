@@ -62,6 +62,19 @@ pub struct PageInfo {
     /// Video and other clips on the page; `rect` is x0, y0, x1, y1 as fractions of the full page,
     /// from the top left, like links.
     pub media: Vec<PageMedia>,
+    pub videos: Vec<PageVideo>,
+}
+
+/// A clip placed with `\\includevideo` (the texoravideo package): a `texora-video:` link over its
+/// poster. `rect` is x0, y0, x1, y1 as fractions of the full page, from the top left, like links.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PageVideo {
+    pub rect: [f32; 4],
+    pub link: crate::video_prep::LinkClip,
+    /// The file, when it may be played: inside the presentation's folder.
+    pub file: Option<PathBuf>,
+    /// Why it cannot be played, in words for the speaker.
+    pub problem: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -246,6 +259,26 @@ pub fn spawn(wake: impl Fn() + Send + 'static) -> PdfEngine {
     PdfEngine { tx, rx }
 }
 
+/// A texoravideo clip of the PDF at `pdf`: its file beside the PDF, checked as when compiling, and the
+/// reason it cannot play (from the check, or as found when the posters were made, in index.json).
+fn video_on_page(pdf: &Path, rect: [f32; 4], link: crate::video_prep::LinkClip, index: &mut Option<crate::video_prep::Index>) -> PageVideo {
+    let dir = pdf.parent().unwrap_or(Path::new("."));
+    let index = index.get_or_insert_with(|| crate::video_prep::read_index(dir));
+    match crate::video_prep::locate(dir, &link.path) {
+        Ok((f, key)) => {
+            // What the compile found still holds while the clip is unchanged; otherwise look at it now.
+            // A clip the compile found unreadable stays so while it is unchanged. Otherwise it is looked at
+            // now, with the video tool installed now: a video waiting for ffmpeg or VLC plays as soon as
+            // one is there, without compiling again.
+            let known = index.posters.get(&crate::video_prep::poster_name(&key)).filter(|e| crate::video_prep::unchanged(e, &f));
+            let broken = known.and_then(|e| e.problem.clone()).filter(|p| p.starts_with("Not a video") || p.starts_with("Cannot play"));
+            let problem = broken.or_else(|| crate::video::check(&f).err().map(|p| p.message(&link.path)));
+            PageVideo { rect, problem, file: Some(f), link }
+        }
+        Err(p) => PageVideo { rect, problem: Some(p.message(&link.path)), file: None, link },
+    }
+}
+
 pub fn encode_png(w: u32, h: u32, rgba: &[u8]) -> Option<Vec<u8>> {
     use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
     let mut out = vec![];
@@ -262,6 +295,7 @@ fn inspect(doc: &PdfDocument, path: &Path) -> DocInfo {
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default());
     let mut media_at: Vec<(usize, [f32; 4], [f32; 4])> = vec![];
+    let mut index: Option<crate::video_prep::Index> = None;
     for page in doc.pages().iter() {
         let (w, h) = (page.width().value, page.height().value);
         let mut p = PageInfo { width: w, height: h, label: page.label().map(str::to_string), ..Default::default() };
@@ -288,6 +322,13 @@ fn inspect(doc: &PdfDocument, path: &Path) -> DocInfo {
                             .map(|i| LinkTarget::Page(i as usize))
                     })
                 });
+            // A texoravideo clip is played here, never opened as a web address.
+            if let Some(LinkTarget::Uri(u)) = &target {
+                if let Some(link) = crate::video_prep::parse_link(u) {
+                    p.videos.push(video_on_page(path, rect, link, &mut index));
+                    continue;
+                }
+            }
             if let Some(target) = target {
                 p.links.push(PageLink { rect, target });
             }

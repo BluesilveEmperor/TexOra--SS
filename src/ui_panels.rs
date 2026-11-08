@@ -314,6 +314,7 @@ impl App {
             let force = std::mem::take(&mut self.show_packages).then_some(true);
             ui.add_space(4.0);
             CollapsingHeader::new(strong("Required LaTeX packages", 14.5)).id_salt(("settings", "Required LaTeX packages")).default_open(false).open(force).show(ui, |ui| self.required_packages(ui));
+            group(ui, "Video", false, &mut |ui| self.video_settings(ui));
             group(ui, "Speaker notes", false, &mut |ui| {
                 // A LaTeX presentation keeps its notes in the source, as \note{} in each slide.
                 let place = match (&self.src, self.st.notes_in_tex) {

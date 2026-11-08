@@ -21,7 +21,7 @@ APP="$STAGE/TeXora.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "target/$TARGET/release/TeXora" "$APP/Contents/MacOS/TeXora"
 cp "target/$TARGET/release/libpdfium.dylib" "$APP/Contents/MacOS/libpdfium.dylib"
-cp README.md CREDITS.md LICENSE "$APP/Contents/Resources/"
+cp README.md CREDITS.md THIRD-PARTY-LICENSES.md LICENSE "$APP/Contents/Resources/"
 cp assets/icon.icns "$APP/Contents/Resources/TeXora.icns"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

@@ -244,6 +244,7 @@ impl App {
         let uv = if idx == self.live() { uv_rect(self.zoom) } else { uv_rect(None) };
         self.paint_page(ui, rect, s.page, s.region, uv);
         self.paint_animations(ui, rect, s.page, s.region, uv);
+        self.paint_videos(ui, rect, idx, uv);
         if self.left == Some(LeftTab::Search) {
             // Search matches on this page. Page positions are of the whole page, so a slide
             // that fills only half of a double-width page needs converting.
@@ -396,12 +397,15 @@ impl App {
 
     /// Pointer behaviour over the live slide: drawing tools, laser, zoom, links and citation peeks.
     pub fn slide_input(&mut self, ui: &mut Ui, rect: Rect, idx: usize, id: &str) {
+        let uv = uv_rect(self.zoom);
+        let resp = ui.interact(rect, sid(id), Sense::click_and_drag());
+        // The animation buttons come after the slide's own area, so they sit on top of it and get
+        // their clicks; made first, the slide took every click and the buttons did nothing.
         if !id.starts_with("audience") {
             self.animation_controls(ui, rect, idx);
             self.media_badges(ui, rect, idx);
+            self.video_help(ui, rect, idx, uv);
         }
-        let uv = uv_rect(self.zoom);
-        let resp = ui.interact(rect, sid(id), Sense::click_and_drag());
         let pos = resp.hover_pos().or(resp.interact_pointer_pos());
         let Some(pos) = pos else { return };
         let p = to_slide(rect, uv, pos);
@@ -481,6 +485,24 @@ impl App {
                     }
                     if resp.double_clicked() {
                         self.zoom = None;
+                    }
+                }
+                // A click on a texoravideo clip plays or pauses it, inside the slide.
+                if let Some(s) = self.deck.slides.get(idx).cloned() {
+                    let hit = self.video_rects(rect, s.page, s.region, uv).into_iter().find(|(_, r)| r.contains(pos)).map(|(v, _)| v);
+                    if let Some(v) = hit {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                        // A press and release in place on the clip is a click even when egui does not
+                        // report one, so play and pause never miss.
+                        let (down, up, at) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.interact_pos()));
+                        if down {
+                            self.video_press = at;
+                        }
+                        let own = up && self.video_press.take().zip(at).is_some_and(|(a, b)| a.distance(b) < 8.0);
+                        if resp.clicked() || own {
+                            self.video_click(ui.ctx(), idx, &v);
+                        }
+                        return;
                     }
                 }
                 // A click on a video clip plays it in the computer's video player.
@@ -1416,6 +1438,12 @@ impl App {
     // ---------- audience ----------
 
     pub fn audience_ui(&mut self, ui: &mut Ui) {
+        self.painting_audience = true;
+        self.audience_inner(ui);
+        self.painting_audience = false;
+    }
+
+    fn audience_inner(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0.0, Color32::BLACK);
         let idx = self.live();

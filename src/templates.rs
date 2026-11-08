@@ -1,7 +1,7 @@
 //! The Beamer templates offered for a new presentation. Each is a complete .tex file in
 //! assets/templates/, with two preview pictures made from it (its title slide and a content slide).
 //! To change one, edit its .tex file and run scripts/make-template-previews.sh.
-//! The animated templates also bring files of their own (pictures and a video clip), written into a
+//! The animated templates also bring files of their own (pictures and video clips), written into a
 //! `media` folder beside the new presentation.
 
 pub struct Template {
@@ -69,10 +69,16 @@ const FRAMES: &[(&str, &[u8])] = &[
     ("media/frame-30.png", include_bytes!("../assets/templates/media/frame-30.png")),
 ];
 
+/// The clips of the Video Guide template, played inside the slide by the texoravideo package.
+const VIDEOS: &[(&str, &[u8])] = &[
+    ("media/sample-video.mp4", include_bytes!("../assets/templates/video/sample-video.mp4")),
+    ("media/sample-loop.gif", include_bytes!("../assets/templates/video/sample-loop.gif")),
+];
+
 /// The video clip of the Media Studio template.
 const CLIP: &[(&str, &[u8])] = &[("media/clip.mp4", include_bytes!("../assets/templates/media/clip.mp4"))];
 
-pub const TEMPLATES: [Template; 8] = [
+pub const TEMPLATES: [Template; 9] = [
     template!("classic", "Classic Green", "Madrid theme with a calm green palette and a full information bar.", "16:9 · light · green"),
     template!("midnight", "Midnight", "Dark slides with amber highlights, easy on the eyes in a dim room.", "16:9 · dark · amber"),
     template!("minimal", "Minimal White", "Clean white slides, dark text and a single blue accent.", "16:9 · light · blue"),
@@ -81,6 +87,7 @@ pub const TEMPLATES: [Template; 8] = [
     template!("motion", "Motion Lab", "Dark slides with an orbit, a pendulum and a countdown drawn with TikZ: looping, back and forth, on a click and at changing speeds.", "16:9 · dark · animated"),
     template!("flipbook", "Flipbook", "Paper-white slides that play the frames of a GIF and bar charts that grow. The pictures come with it.", "4:3 · light · animated", FRAMES),
     template!("media", "Media Studio", "Violet slides with a video clip, a clip packed into the PDF, and charts that draw themselves. The clip comes with it.", "16:9 · light · video", CLIP),
+    template!("video", "Video Guide", "Navy and gold slides that show and explain videos and GIFs playing inside the slide, with \\includevideo. A video and a GIF come with it.", "16:9 · light · video", VIDEOS),
 ];
 
 /// Where the animated templates start in the list.
@@ -129,7 +136,7 @@ mod tests {
         }
         assert_eq!(themes.len(), TEMPLATES.len(), "every template looks different");
         for t in &TEMPLATES[FIRST_ANIMATED..] {
-            assert!(t.tex.contains("\\usepackage{animate}"), "{} is animated", t.id);
+            assert!(t.tex.contains("\\usepackage{animate}") || t.tex.contains("\\usepackage{texoravideo}"), "{} is animated", t.id);
             for (name, bytes) in t.files {
                 let stem = name.split('-').next().unwrap_or(name);
                 assert!(t.tex.contains(stem), "{} uses {name}", t.id);

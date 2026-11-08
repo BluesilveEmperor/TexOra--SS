@@ -55,7 +55,8 @@ The audience window shows only the slide, fullscreen on a projector or second sc
   source, from a `.pdfpc` file, or from a Markdown file beside the presentation. **Edit notes** for any
   slide right in the notes panel.
 - **Animations and videos**: animations made with the LaTeX `animate` package play on the slide, with
-  autoplay, looping and play controls; video clips open in your video player.
+  autoplay, looping and play controls. Videos and GIFs placed with the built-in `texoravideo` package
+  play inside the slide; `\movie` and media9 clips open in your video player.
 - **Drawing and pointing**: pen, highlighter, eraser, a laser pointer in several colours, and zoom into
   an area. Ink is kept per slide.
 - **Zoom** any slide with the wheel or a pinch, around the pointer.
@@ -128,11 +129,13 @@ Nothing else is needed to present PDFs: each package carries the program and its
    LaTeX project**, pick a recent file, or drop a file on the window. **Try the sample lecture** opens
    a ready-made talk to explore.
 
-   **New LaTeX presentation** offers eight templates, each a complete Beamer file with speaker notes:
-   Classic Green, Midnight, Minimal White, Conference and Sunrise, and three animated ones. **Motion
+   **New LaTeX presentation** offers nine templates, each a complete Beamer file with speaker notes:
+   Classic Green, Midnight, Minimal White, Conference and Sunrise, and four animated ones. **Motion
    Lab** shows animations drawn with TikZ, **Flipbook** plays the frames of a GIF and charts that
-   grow, and **Media Studio** has a video clip and charts that draw themselves. Flipbook and Media
-   Studio save their pictures and clip in a `media` folder beside the new file.
+   grow, **Media Studio** has a video clip and charts that draw themselves, and **Video Guide**
+   explains `\includevideo` slide by slide, with a video and a GIF that play inside the slides.
+   Flipbook, Media Studio and Video Guide save their pictures and clips in a `media` folder beside
+   the new file.
 3. A `.tex` file is compiled for you. Edit it in the **LaTeX studio** (Cmd/Ctrl+E), or in your own
    LaTeX editor: the slides rebuild either way.
 4. Press **F5** to show the slides to the room, then move with the arrow keys or **Space**.
@@ -358,7 +361,48 @@ For a large GIF, shrink it while splitting, for example
 `ffmpeg -i anim.gif -vf "fps=10,scale=640:-1" frames/f%d.png`, and keep the `frames` folder beside
 the `.tex` file.
 
-**Videos.** Use Beamer's `\movie` (the `multimedia` package) or media9's `\includemedia`. Each shows a
+**Videos inside the slide.** TeXora comes with its own LaTeX package, `texoravideo`, and finds it by
+itself when it compiles; there is no package to install or copy. **GIFs play by themselves. MP4
+playback uses VLC or ffmpeg installed on your computer**: with ffmpeg the clip plays inside the slide,
+with VLC in VLC's own window. TeXora contains no video decoder and never downloads or installs one.
+
+```latex
+\usepackage{texoravideo}
+\hypersetup{hidelinks}
+...
+\includevideo[width=0.5\textwidth]{clip.mp4}
+\includevideo[height=5cm][loop,autoplay]{media/wave.gif}
+\includevideo[width=\textwidth][poster=cover.png,posterat=25]{talk.mp4}
+```
+
+- The first optional argument goes to `\includegraphics` as it is. The second takes `autoplay`, `loop`,
+  `posterat=<percent>` (where the poster is taken from; default the first frame) and `poster=<image>`.
+- The video must be in the `.tex` file's folder, or in a folder inside it (any name). If it is in a
+  folder, write the folder name too: `{videos/clip.mp4}`. Otherwise TeXora shows "Video not found".
+- Before LaTeX runs, TeXora makes one poster per video in a `texora-video` folder beside the
+  presentation, again only when the clip changes; if a video is used with different `posterat`
+  values, the first counts. `texora-video/index.json` keeps what was found, so the
+  PDF still plays when opened later. Every PDF viewer shows the poster; only TeXora plays the clip.
+- Click to play, click again to pause; another slide stops it, and overlay steps of the same slide keep
+  it playing. GIFs work the same way, with no splitting.
+- GIFs always play. MP4 and other formats play when ffmpeg or VLC is installed; ffmpeg also makes
+  their posters. Choose the player in **Settings > Video** (Auto, ffmpeg, VLC or Off); each has a path
+  field and a **Test** button.
+- No player installed: the clip says "This video needs VLC or ffmpeg installed on your computer.", with
+  **Get VLC** (videolan.org), **Get ffmpeg** (ffmpeg.org/download.html) and, on macOS and Linux,
+  **Copy install command** (`brew install ffmpeg`, or `sudo apt install ffmpeg`). TeXora copies the
+  command; you run it yourself.
+- A missing file, a file that is not a video, or a path outside the presentation's folder (an absolute
+  path, `..`, a link leading out, a web address) shows a message over the poster and under Problems.
+  Names may have spaces and accents, but not `%` or `#`.
+- ffmpeg and VLC run as separate programs, with a list of arguments and never through a shell; TeXora
+  ends ffmpeg when you leave the slide. Sound is not played yet.
+- ffmpeg reads a clip with `-nostdin -protocol_whitelist file` and real video formats only, so a file
+  that is really a playlist or concat list cannot reach other files or the web. VLC gets the full path
+  after `--`, and only real video files. Which program runs comes only from your Settings: a
+  presentation or anything in its folder can never set it or add arguments.
+
+**Videos in your video player.** Use Beamer's `\movie` (the `multimedia` package) or media9's `\includemedia`. Each shows a
 play button in the presenter view. Click it and the video opens in your computer's video player,
 which you can move to the projector. The player may start paused, so press play there.
 
@@ -374,7 +418,7 @@ which you can move to the projector. The player may start paused, so press play 
   unpacked by TeXora.
 - Write `\movie` without `externalviewer`. `\movie[externalviewer]` and `\href{run:...}` links are not
   opened yet, and links to local files (`\href{file:...}`) are not opened.
-- Videos do not play inside the slide itself.
+- These clips do not play inside the slide; use `\includevideo` for that.
 
 ### Presenting to the room
 
@@ -487,5 +531,3 @@ Copyright 2026 Khalid Alkhaldi. Licensed under [PolyForm Noncommercial 1.0.0](LI
 non-commercial purpose, including personal use, study, teaching, research and non-profit work. Commercial
 use needs the author's permission. The app icon and Home picture are the author's artwork and are not
 covered by the licence. See [CREDITS.md](CREDITS.md) for the libraries and fonts used.
-
-Made by Khalid Alkhaldi.

@@ -557,37 +557,56 @@ mod tests {
         assert!(parse_link("https://example.com").is_none());
     }
 
+    /// Uses GIFs only, which TeXora decodes itself, so it gives the same result on every computer,
+    /// with or without ffmpeg or VLC (the test machines on GitHub have neither).
     #[test]
     fn posters_are_made_once_and_problems_reported() {
         let dir = std::env::temp_dir().join(format!("texora-prep-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("media")).unwrap();
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/test/video");
-        std::fs::copy(src.join("test.mp4"), dir.join("test.mp4")).unwrap();
+        std::fs::copy(src.join("test.gif"), dir.join("wave.gif")).unwrap();
         std::fs::copy(src.join("test.gif"), dir.join("media/clip é.gif")).unwrap();
         std::fs::copy(src.join("test.txt"), dir.join("test.txt")).unwrap();
         // A poster left from an older compile, which is no longer used.
         std::fs::create_dir_all(dir.join(FOLDER)).unwrap();
         std::fs::write(dir.join(FOLDER).join("0123456789ABCDEF0123456789ABCDEF.jpg"), b"old").unwrap();
         let tex = dir.join("deck.tex");
-        std::fs::write(&tex, "\\includevideo[][posterat=30]{test.mp4}\n\\includevideo[][posterat=50]{test.mp4}\n\\includevideo{media/clip é.gif}\n\\includevideo{does-not-exist.mp4}\n\\includevideo{test.txt}\n\\includevideo{../escape.mp4}\n\\includevideo{media/clip é.gif}\n\\includevideo{test.mp4}\n").unwrap();
+        std::fs::write(&tex, "\\includevideo[][posterat=30]{wave.gif}\n\\includevideo[][posterat=50]{wave.gif}\n\\includevideo{media/clip é.gif}\n\\includevideo{does-not-exist.mp4}\n\\includevideo{test.txt}\n\\includevideo{../escape.mp4}\n\\includevideo{media/clip é.gif}\n\\includevideo{wave.gif}\n").unwrap();
         let r = prepare(&tex);
         assert_eq!((r.made, r.reused), (2, 0), "one poster per video: {r:?}");
         let lines: Vec<usize> = r.problems.iter().map(|p| p.1).collect();
         assert_eq!(lines, vec![2, 4, 5, 6], "{:?}", r.problems);
         assert!(r.problems[0].2.contains("posterat=50 is not used") && r.problems[0].2.contains("30%"));
         assert_eq!(r.problems[1].2, "Video not found: Place the video in the same folder as your .tex file or in a subfolder. If it's in a subfolder, include the folder path in \\includevideo.");
-        assert!(r.problems[2].2.contains("Not a video"));
+        assert!(r.problems[2].2.contains("Not a video"), "{}", r.problems[2].2);
         assert!(r.problems[3].2.contains("out of"));
-        // The GIF used twice has one poster.
+        // Each GIF, used two or three times, has one poster; the old one is gone.
         let posters: Vec<String> = std::fs::read_dir(dir.join(FOLDER)).unwrap().flatten().map(|f| f.file_name().to_string_lossy().to_string()).filter(|n| n.ends_with(".jpg")).collect();
         assert_eq!(posters.len(), 2, "{posters:?}");
-        assert!(dir.join(FOLDER).join(poster_name("test.mp4")).is_file());
+        assert!(dir.join(FOLDER).join(poster_name("wave.gif")).is_file());
         assert!(dir.join(FOLDER).join(poster_name("media/clip é.gif")).is_file());
         let again = prepare(&tex);
         assert_eq!((again.made, again.reused), (0, 2), "unchanged clips are not made again");
         let idx = read_index(&dir);
-        assert_eq!((idx.posters[&poster_name("test.mp4")].width, idx.posters[&poster_name("test.mp4")].at), (640, 30));
+        assert_eq!((idx.posters[&poster_name("wave.gif")].width, idx.posters[&poster_name("wave.gif")].at), (320, 30));
         assert!(idx.posters[&poster_name("does-not-exist.mp4")].problem.is_some());
+    }
+
+    /// An MP4's poster needs ffmpeg, so this runs only where it is installed.
+    #[test]
+    fn mp4_posters_are_made_with_installed_ffmpeg() {
+        if video::find_ffmpeg().is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("texora-prep-mp4-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/test/video/test.mp4"), dir.join("test.mp4")).unwrap();
+        let tex = dir.join("deck.tex");
+        std::fs::write(&tex, "\\includevideo[][posterat=30]{test.mp4}\n\\includevideo{test.mp4}\n").unwrap();
+        let r = prepare(&tex);
+        assert_eq!((r.made, r.reused, r.problems.len()), (1, 0, 0), "{r:?}");
+        let idx = read_index(&dir);
+        assert_eq!((idx.posters[&poster_name("test.mp4")].width, idx.posters[&poster_name("test.mp4")].at), (640, 30));
     }
 
     /// A presentation can never choose which program runs or add to its arguments: the player and its

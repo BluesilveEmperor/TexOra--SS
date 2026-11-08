@@ -720,17 +720,23 @@ mod tests {
     fn ffmpeg_and_vlc_arguments_are_safe() {
         // ffmpeg: no shell, no keyboard, local files only, real video containers only, and the file
         // as `file:<full path>` right after -i, even when its name starts with "-".
-        let a = ffmpeg_input_args(Path::new("/talk/-y -i x.mp4"), Some(2.0)).unwrap();
+        // A full path on this system (on Windows it starts with a drive, such as C:\).
+        let talk = std::env::temp_dir().join("talk");
+        let odd = talk.join("-y -i x.mp4");
+        let a = ffmpeg_input_args(&odd, Some(2.0)).unwrap();
         let at = |s: &str| a.iter().position(|x| x == s).unwrap();
         assert!(at("-nostdin") < at("-i") && at("-protocol_whitelist") < at("-i") && at("-format_whitelist") < at("-i"));
         assert_eq!(a[at("-protocol_whitelist") + 1], "file");
         assert!(!FFMPEG_FORMATS.split(',').any(|f| ["concat", "hls", "applehttp", "image2", "sdp", "rtp", "rtsp", "tee", "data", "lavfi"].contains(&f)), "no playlist formats");
-        assert_eq!(a.last().unwrap(), "file:/talk/-y -i x.mp4");
+        assert_eq!(a.last().unwrap(), &format!("file:{}", plain(&odd)));
+        assert!(a.last().unwrap().ends_with("-y -i x.mp4"), "the name stays one argument");
         assert_eq!(a[a.len() - 2], "-i");
         assert!(ffmpeg_input_args(Path::new("clip.mp4"), None).is_err(), "only full paths");
         // VLC: the full path after "--", so a name starting with "-" is never an option.
-        let v = vlc_args(Path::new("/talk/--extraintf=http.mp4"), true).unwrap();
-        assert_eq!(v, vec!["--play-and-exit", "--loop", "--", "/talk/--extraintf=http.mp4"]);
+        let named = talk.join("--extraintf=http.mp4");
+        let v = vlc_args(&named, true).unwrap();
+        assert_eq!(v, vec!["--play-and-exit".to_string(), "--loop".to_string(), "--".to_string(), plain(&named)]);
+        assert!(!v[3].starts_with('-'), "a full path never starts with '-'");
         assert!(vlc_args(Path::new("--extraintf=http.mp4"), false).is_err(), "only full paths");
     }
 

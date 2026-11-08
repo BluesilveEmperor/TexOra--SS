@@ -636,8 +636,11 @@ mod tests {
         assert!(matches!(resolve(&dir, &l.path), Err(Problem::Refused(_))));
         // A file whose name looks like an option is only ever a full path, after `-i` or `--`.
         let odd = resolve(&dir, "--ffmpeg=%2Fbin%2Fsh").unwrap();
-        assert!(video::ffmpeg_input_args(&odd, None).unwrap().last().unwrap().starts_with("file:/"));
-        assert_eq!(video::vlc_args(&odd, false).unwrap()[1], "--");
+        let input = video::ffmpeg_input_args(&odd, None).unwrap().last().unwrap().clone();
+        assert!(input.starts_with("file:") && !input.starts_with("file:-") && input.ends_with("--ffmpeg=%2Fbin%2Fsh"), "{input}");
+        let v = video::vlc_args(&odd, false).unwrap();
+        assert_eq!(v[1], "--");
+        assert!(!v[2].starts_with('-') && v[2].ends_with("--ffmpeg=%2Fbin%2Fsh"), "{}", v[2]);
     }
 
     #[test]

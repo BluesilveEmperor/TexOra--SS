@@ -483,24 +483,38 @@ pub fn requirements(src: &str, engine: Engine) -> Vec<Requirement> {
     out
 }
 
-/// Looks each requirement up, using kpsewhich for TeX files and the folder for your own files.
+/// Looks each requirement up the way LaTeX does when TeXora compiles: the presentation's own folder
+/// first (a `.sty`, `.cls` or theme file beside the `.tex`), then TeXora's packages, then the TeX
+/// installation (kpsewhich, run from the presentation's folder with the same TEXINPUTS as a compile).
 pub fn check_requirements(src: &str, engine: Engine, dir: &Path) -> (Vec<Requirement>, Option<String>) {
     let mut reqs = requirements(src, engine);
     let kpse = find_tool("kpsewhich");
+    let texinputs = crate::video_prep::tex_dir().ok().map(|d| crate::video_prep::texinputs(&d));
+    let in_folder = |r: &Requirement| r.candidates.iter().any(|c| dir.join(c).is_file());
     for r in reqs.iter_mut() {
         r.found = match r.kind {
             ReqKind::Tool => find_tool(&r.candidates[0]).is_some(),
-            ReqKind::File => r.candidates.iter().any(|c| dir.join(c).is_file()),
+            ReqKind::File => in_folder(r),
             // Built into TeXora: found through TEXINPUTS when TeXora compiles.
             ReqKind::Package if r.name == "texoravideo" => true,
+            // A package, class, theme or TikZ library of your own, beside the presentation.
+            _ if in_folder(r) => true,
             _ => match &kpse {
                 Some(k) => {
-                    let out = Command::new(k).args(&r.candidates).output();
-                    out.map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty()).unwrap_or(false)
+                    let mut c = Command::new(k);
+                    c.args(&r.candidates).current_dir(dir);
+                    if let Some(t) = &texinputs {
+                        c.env("TEXINPUTS", t);
+                    }
+                    c.output().map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty()).unwrap_or(false)
                 }
                 None => false,
             },
         };
+        // Found means no install hint; one of your own files never needs tlmgr.
+        if r.found && !matches!(r.kind, ReqKind::Tool) {
+            r.hint.clear();
+        }
     }
     // A Unicode font package cannot work under pdfLaTeX, whatever is installed.
     let chosen = if engine == Engine::Auto { detect_engine(src) } else { engine };
@@ -598,6 +612,26 @@ mod tests {
         let found = |n: &str| r.iter().find(|x| x.name == n).unwrap().found;
         assert!(found("beamer") && found("Madrid") && found("amsmath") && found("arrows.meta"));
         assert!(!found("nosuchpackagehere") && !found("NoSuchTheme") && !found("nosuchlib") && !found("nofile"));
+    }
+
+    /// Issue #3: a package, class or theme file beside the presentation is found, with no tlmgr hint.
+    #[test]
+    fn files_beside_the_presentation_count_as_found() {
+        let dir = std::env::temp_dir().join(format!("texora-local-sty-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("styles")).unwrap();
+        for f in ["mytesting.sty", "myslides.cls", "beamerthemeCampus.sty", "styles/house.sty", "tikzlibrarymyshapes.code.tex"] {
+            std::fs::write(dir.join(f), "% local\n").unwrap();
+        }
+        let src = "\\documentclass{myslides}\n\\usepackage{mytesting}\n\\usepackage{styles/house}\n\\usetheme{Campus}\n\\usetikzlibrary{myshapes}\n\\usepackage{texoravideo}\n\\usepackage{nosuchpackagehere}\n";
+        let (r, _) = check_requirements(src, Engine::PdfLatex, &dir);
+        let get = |n: &str| r.iter().find(|x| x.name == n).unwrap().clone();
+        for n in ["myslides", "mytesting", "styles/house", "Campus", "myshapes", "texoravideo"] {
+            let x = get(n);
+            assert!(x.found, "{n} is beside the presentation (or built in)");
+            assert!(!x.hint.contains("tlmgr"), "no install hint for {n}: {}", x.hint);
+        }
+        let missing = get("nosuchpackagehere");
+        assert!(!missing.found && missing.hint.contains("tlmgr"), "a package found nowhere is still missing");
     }
 
     #[test]

@@ -24,6 +24,7 @@ All notable changes to TeXora. The newest version is first.
 
 ### Fixed
 
+- Check packages finds packages, classes, themes and TikZ libraries of your own that sit beside the `.tex` file (or in a folder you name, as in `\usepackage{styles/house}`), as LaTeX does, and no longer reports them as missing or suggests `tlmgr install` for them (#3).
 - The control bar under an animation (first, previous, play/pause, next, last) works again: its buttons now get the click, instead of the slide underneath taking it.
 
 ## 1.4.1

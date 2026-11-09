@@ -201,6 +201,8 @@ pub struct App {
     pub syscheck_open: bool,
     /// The last text copied from that box, for the test report.
     pub cli_copied: Option<String>,
+    /// In a test run, what the editor put on the clipboard (kept off the real clipboard).
+    pub test_clip: Option<String>,
     pub update_open: bool,
     pub update_rx: Option<Receiver<crate::update::Outcome>>,
     pub update_result: Option<crate::update::Outcome>,
@@ -363,7 +365,7 @@ impl App {
         let st = Settings::load();
         ctx.set_zoom_factor(st.ui_scale);
         // Which installed video tool (if any) plays videos that are not GIFs.
-        crate::video::configure(&st.video_player, &st.ffmpeg_path, &st.vlc_path);
+        crate::video::configure(&st.video_player, &st.ffmpeg_path, &st.vlc_path, st.video_sound);
         let mut app = App {
             tabs: vec![Tab::blank(1)],
             active: 0,
@@ -393,6 +395,7 @@ impl App {
             template_picker: None,
             syscheck_open: false,
             cli_copied: None,
+            test_clip: None,
             update_open: false,
             update_rx: None,
             update_result: None,
@@ -522,6 +525,10 @@ impl App {
     // ---------- files ----------
 
     pub fn open_path(&mut self, path: &Path) {
+        // A short path typed in a terminal ("talk.tex") becomes a full one, so LaTeX, the package check
+        // and the recent list all find the file's folder.
+        let full = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+        let path = full.as_path();
         let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
         self.st.recent.retain(|p| p != path);
         self.st.recent.insert(0, path.to_path_buf());
@@ -579,7 +586,7 @@ impl App {
 
     fn read_source(&self, path: &Path) -> Option<Source> {
         let text = notes::read_text(path)?;
-        // One untouched copy, byte for byte, since live editing saves as you type.
+        // One untouched copy, byte for byte, made the first time TeXora opens the file.
         let bak = path.with_extension("tex.texora-backup");
         if !bak.exists() {
             let _ = std::fs::copy(path, &bak);
@@ -996,15 +1003,6 @@ impl App {
         if let Some(t) = self.notes_dirty {
             if t.elapsed().as_secs_f32() > 1.0 {
                 self.save_notes();
-            }
-        }
-
-        // Live editing: save and rebuild shortly after typing stops.
-        let live = self.st.live_edit;
-        if let Some(s) = &self.src {
-            if s.dirty && live && s.last_edit.elapsed().as_secs_f32() > 1.5 && !self.compiling {
-                self.save_source();
-                self.start_compile();
             }
         }
 
@@ -1881,6 +1879,16 @@ impl App {
 
     pub fn screenshot_tick(&mut self, ctx: &Context) {
         let Some(path) = self.shot.clone() else { return };
+        // A test run leaves the real clipboard alone and notes what would have been copied.
+        ctx.output_mut(|o| {
+            o.commands.retain(|c| match c {
+                egui::OutputCommand::CopyText(t) => {
+                    self.test_clip = Some(t.clone());
+                    false
+                }
+                _ => true,
+            })
+        });
         self.frames_drawn += 1;
         ctx.request_repaint();
         let settled = self.src.as_ref().map(|s| !s.dirty).unwrap_or(true);
@@ -1956,6 +1964,17 @@ impl App {
                 }
             }
             "t" => raw.events.push(egui::Event::Text(arg.to_string())),
+            // Shift with a key (to select), and the clipboard: copy, cut, and paste of the given text.
+            "S" => {
+                if let Some(key) = egui::Key::from_name(arg) {
+                    for pressed in [true, false] {
+                        raw.events.push(egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::SHIFT });
+                    }
+                }
+            }
+            "c" => raw.events.push(egui::Event::Copy),
+            "x" => raw.events.push(egui::Event::Cut),
+            "p" => raw.events.push(egui::Event::Paste(arg.replace("\\n", "\n"))),
             "z" => {
                 let dy = arg.parse().unwrap_or(0.0);
                 raw.events.push(egui::Event::MouseWheel {
@@ -1983,7 +2002,7 @@ impl App {
     pub fn script_report(&self) -> String {
         let ink: usize = self.side.ink.values().map(Vec::len).sum();
         format!(
-            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} packages={} recent={} toast={} skipped={:?} draft={:?} line={} log_open={} wrap={} follow={} anims={:?} videos={:?}",
+            "slide={} frame={} step={} tool={:?} screen={:?} frozen={:?} zoom={} ink={} laser={} timer={} audience={} swap={} history={} view={:?} questions={} slides={} tabs={:?} active={} bookmarks={:?} asked={:?} about={} update={:?} notice={:?} saved={:?} layout={:?} level={:.2} elapsed={:.1} target={} left={:?} missing={} warn={} status={:?} note={:?} cli={} copied={:?} syscheck={} packages={} recent={} toast={} skipped={:?} draft={:?} line={} log_open={} wrap={} follow={} anims={:?} videos={:?} clip={:?} avsync={:?}",
             self.cur + 1,
             self.frame() + 1,
             self.deck.slides.get(self.cur).map(|s| s.step + 1).unwrap_or(0),
@@ -2038,8 +2057,17 @@ impl App {
             self.players
                 .iter()
                 .map(|p| {
-                    let s = p.shared.lock().map(|s| (s.playing, (s.at * 10.0).round() / 10.0, s.error.clone())).unwrap_or_default();
+                    let s = p.shared.lock().map(|s| (s.playing, (s.at * 10.0).round() / 10.0, if s.sound { None } else { Some("silent".to_string()) }.or(s.error.clone()))).unwrap_or_default();
                     (p.frame_no, p.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), s.0, s.1, s.2)
+                })
+                .collect::<Vec<_>>(),
+            self.test_clip,
+            // Each clip with sound: name, frames measured, mean and worst picture-minus-sound in ms.
+            self.players
+                .iter()
+                .filter_map(|p| {
+                    let s = p.shared.lock().ok()?;
+                    (s.sync.frames > 0).then(|| (p.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), s.sync.frames, s.sync.mean_ms().round(), s.sync.worst_ms.round()))
                 })
                 .collect::<Vec<_>>(),
         )

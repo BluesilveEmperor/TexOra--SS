@@ -107,7 +107,6 @@ impl App {
                 if labelled_button(ui, Icon::Check, "Check packages", false).clicked() {
                     self.run(Action::CheckPackages, &ctx);
                 }
-                ui.checkbox(&mut self.st.live_edit, "Live").on_hover_text("Save and rebuild shortly after you stop typing");
                 ui.checkbox(&mut self.st.auto_compile, "Rebuild on save");
                 ui.checkbox(&mut self.follow_cursor, "Follow cursor").on_hover_text("Show the slide for the line you are on");
                 if ui.checkbox(&mut self.st.editor_wrap, "Wrap text").on_hover_text("Wrap long lines at the editor's width instead of scrolling sideways").changed() {
@@ -361,6 +360,21 @@ impl App {
         self.src = Some(src);
         if want_sync {
             self.sync_from_cursor();
+        }
+        self.keep_editor_focus(ui.ctx(), id);
+    }
+
+    /// In the studio the keyboard stays with the editor. A click on a button, a checkbox or the slide
+    /// used to leave it with nothing, so the next letters ran presenter shortcuts instead of typing:
+    /// B blacked out the slide and the arrows changed slides. Another text box keeps the keyboard while
+    /// it has it, and nothing is taken while a menu or list is open or the mouse button is held.
+    fn keep_editor_focus(&self, ctx: &egui::Context, id: egui::Id) {
+        if self.capture.is_some() || ctx.input(|i| i.pointer.any_down()) || egui::Popup::is_any_open(ctx) {
+            return;
+        }
+        match ctx.memory(|m| m.focused()) {
+            Some(f) if f == id || TextEdit::load_state(ctx, f).is_some() => {}
+            _ => ctx.memory_mut(|m| m.request_focus(id)),
         }
     }
 

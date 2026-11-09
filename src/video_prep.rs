@@ -638,7 +638,7 @@ mod tests {
         let odd = resolve(&dir, "--ffmpeg=%2Fbin%2Fsh").unwrap();
         let input = video::ffmpeg_input_args(&odd, None).unwrap().last().unwrap().clone();
         assert!(input.starts_with("file:") && !input.starts_with("file:-") && input.ends_with("--ffmpeg=%2Fbin%2Fsh"), "{input}");
-        let v = video::vlc_args(&odd, false).unwrap();
+        let v = video::vlc_args(&odd, false, false).unwrap();
         assert_eq!(v[1], "--");
         assert!(!v[2].starts_with('-') && v[2].ends_with("--ffmpeg=%2Fbin%2Fsh"), "{}", v[2]);
     }

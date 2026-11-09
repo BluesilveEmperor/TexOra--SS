@@ -29,6 +29,33 @@ pub struct Shared {
     /// Seconds into the clip of the frame on show, and the clip's length.
     pub at: f64,
     pub duration: f64,
+    /// Whether the clip's sound plays too (it has sound, sound is on and ffplay is installed).
+    pub sound: bool,
+    /// How far the picture is from the sound, measured each time a frame goes on show.
+    pub sync: SyncStats,
+}
+
+/// Picture minus sound, in milliseconds, over the frames shown while both played. Above zero the
+/// picture is ahead of the sound (the sound is late).
+#[derive(Default, Clone, Copy, Debug)]
+pub struct SyncStats {
+    pub frames: u32,
+    pub sum_ms: f64,
+    pub worst_ms: f64,
+}
+
+impl SyncStats {
+    pub fn add(&mut self, ms: f64) {
+        self.frames += 1;
+        self.sum_ms += ms;
+        if ms.abs() > self.worst_ms.abs() {
+            self.worst_ms = ms;
+        }
+    }
+
+    pub fn mean_ms(&self) -> f64 {
+        if self.frames == 0 { 0.0 } else { self.sum_ms / self.frames as f64 }
+    }
 }
 
 pub struct Player {
@@ -44,13 +71,13 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn start(id: u64, frame_no: usize, gen: u64, path: PathBuf, name: String, repeat: bool, ctx: Context) -> Player {
+    pub fn start(id: u64, frame_no: usize, gen: u64, path: PathBuf, name: String, repeat: bool, mute: bool, ctx: Context) -> Player {
         let shared = Arc::new(Mutex::new(Shared::default()));
         let (tx, rx) = mpsc::channel();
         let (s, p) = (shared.clone(), path.clone());
         std::thread::Builder::new()
             .name("texora-video".into())
-            .spawn(move || run(&p, &name, repeat, &s, &rx, &ctx))
+            .spawn(move || run(&p, &name, repeat, mute, &s, &rx, &ctx))
             .ok();
         Player { id, frame_no, gen, path, shared, tx, rgba: None }
     }
@@ -75,8 +102,9 @@ impl Drop for Player {
     }
 }
 
-/// The player's thread: waits while paused, and while playing shows each frame at its time.
-fn run(path: &std::path::Path, name: &str, repeat: bool, shared: &Mutex<Shared>, rx: &mpsc::Receiver<Cmd>, ctx: &Context) {
+/// The player's thread: waits while paused, and while playing shows each frame at its time. The clip's
+/// sound (through ffplay) starts, stops and starts again with the picture, from the same place.
+fn run(path: &std::path::Path, name: &str, repeat: bool, mute: bool, shared: &Mutex<Shared>, rx: &mpsc::Receiver<Cmd>, ctx: &Context) {
     let set = |f: &dyn Fn(&mut Shared)| {
         if let Ok(mut s) = shared.lock() {
             f(&mut s);
@@ -93,11 +121,17 @@ fn run(path: &std::path::Path, name: &str, repeat: bool, shared: &Mutex<Shared>,
     };
     let duration = stream.info().duration;
     set(&|s| s.duration = duration);
+    let mut sound = video::SoundPlayer::for_clip(path, stream.info(), mute);
+    let has_sound = sound.is_some();
+    set(&|s| s.sound = has_sound);
     let (mut playing, mut ended) = (false, false);
     let mut held: Option<Frame> = None;
     let mut waiting: Option<Cmd> = None;
-    // The clip time `base` was on show at the instant `origin`.
+    // Without sound, the clip time `base` was on show at the instant `origin`. With sound, the picture
+    // follows the sound's own clock instead, which ffplay reports; `started` is when the sound was
+    // asked to start, and `no_clock` is set when ffplay never reported a time.
     let (mut origin, mut base, mut last) = (Instant::now(), 0.0f64, 0.0f64);
+    let (mut started, mut no_clock, mut dropped) = (Instant::now(), false, 0u32);
     loop {
         let cmd = match waiting.take() {
             Some(c) => Some(c),
@@ -111,6 +145,9 @@ fn run(path: &std::path::Path, name: &str, repeat: bool, shared: &Mutex<Shared>,
             Some(Cmd::Stop) => return,
             Some(Cmd::Pause) => {
                 playing = false;
+                if let Some(s) = sound.as_mut() {
+                    s.stop();
+                }
                 set(&|s| s.playing = false);
                 continue;
             }
@@ -120,7 +157,10 @@ fn run(path: &std::path::Path, name: &str, repeat: bool, shared: &Mutex<Shared>,
                     (held, last, ended) = (None, 0.0, false);
                 }
                 playing = true;
-                (origin, base) = (Instant::now(), last);
+                (origin, base, started, no_clock) = (Instant::now(), last, Instant::now(), false);
+                if let Some(s) = sound.as_mut() {
+                    s.play_from(base);
+                }
                 set(&|s| (s.playing, s.ended) = (true, false));
             }
             None => {}
@@ -131,17 +171,44 @@ fn run(path: &std::path::Path, name: &str, repeat: bool, shared: &Mutex<Shared>,
         let Some(f) = held.take().or_else(|| stream.next_frame()) else {
             if repeat && last > 0.0 {
                 stream.seek(0.0);
-                (origin, base, last) = (Instant::now(), 0.0, 0.0);
+                (origin, base, last, started, no_clock) = (Instant::now(), 0.0, 0.0, Instant::now(), false);
+                if let Some(s) = sound.as_mut() {
+                    s.play_from(0.0);
+                }
                 continue;
+            }
+            if let Some(s) = sound.as_mut() {
+                s.stop();
             }
             (playing, ended) = (false, true);
             set(&|s| (s.playing, s.ended) = (false, true));
             continue;
         };
         let now = Instant::now();
-        let due = origin + Duration::from_secs_f64((f.at - base).max(0.0));
-        if due > now {
-            match rx.recv_timeout(due - now) {
+        let heard = if no_clock { None } else { sound.as_ref().and_then(|s| s.clock()) };
+        // Seconds until this frame is due: by the sound when it plays, otherwise by the computer's clock.
+        let ahead = match heard {
+            Some(h) => f.at - h,
+            None if sound.is_some() && !no_clock => {
+                if started.elapsed() < Duration::from_secs(2) {
+                    // ffplay takes a moment to start; the picture waits for the sound rather than run ahead.
+                    match rx.recv_timeout(Duration::from_millis(5)) {
+                        Ok(c) => waiting = Some(c),
+                        Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    }
+                    held = Some(f);
+                    continue;
+                }
+                // No report from ffplay: the picture keeps its own time from here.
+                no_clock = true;
+                (origin, base) = (now, f.at);
+                0.0
+            }
+            None => (f.at - base) - now.duration_since(origin).as_secs_f64(),
+        };
+        if ahead > 0.0 {
+            match rx.recv_timeout(Duration::from_secs_f64(ahead)) {
                 Ok(c) => {
                     // Answer at once; this frame waits for its turn.
                     held = Some(f);
@@ -151,12 +218,22 @@ fn run(path: &std::path::Path, name: &str, repeat: bool, shared: &Mutex<Shared>,
                 Err(mpsc::RecvTimeoutError::Disconnected) => return,
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
-        } else if now - due > Duration::from_millis(400) {
+        } else if heard.is_some() && ahead < -0.05 && dropped < 5 {
+            // Behind the sound: skip this frame to catch up (but still show one now and then).
+            dropped += 1;
+            last = f.at;
+            continue;
+        } else if heard.is_none() && ahead < -0.4 {
             // Far behind (the computer was busy): carry on from here rather than race.
             (origin, base) = (now, f.at);
         }
+        dropped = 0;
         last = f.at;
+        let heard = if no_clock { None } else { sound.as_ref().and_then(|s| s.clock()) };
         if let Ok(mut s) = shared.lock() {
+            if let Some(h) = heard {
+                s.sync.add((f.at - h) * 1000.0);
+            }
             s.at = f.at;
             s.frame = Some(f);
             s.seq += 1;
@@ -303,7 +380,7 @@ impl App {
     fn start_player(&mut self, ctx: &Context, frame_no: usize, v: &PageVideo) -> Option<usize> {
         let file = v.file.clone()?;
         self.player_seq += 1;
-        self.players.push(Player::start(self.player_seq, frame_no, self.gen, file, v.link.path.clone(), v.link.repeat, ctx.clone()));
+        self.players.push(Player::start(self.player_seq, frame_no, self.gen, file, v.link.path.clone(), v.link.repeat, v.link.mute, ctx.clone()));
         Some(self.players.len() - 1)
     }
 
@@ -320,7 +397,8 @@ impl App {
                 self.status = if self.is_screenshot() {
                     format!("Would play {} in VLC.", v.link.path)
                 } else {
-                    match video::open_in_vlc(&vlc, file, v.link.repeat) {
+                    let silent = v.link.mute || !video::tools().sound;
+                    match video::open_in_vlc(&vlc, file, v.link.repeat, silent) {
                         Ok(()) => format!("{} is playing in VLC.", v.link.path),
                         Err(e) => format!("VLC could not be started: {e}"),
                     }
@@ -430,13 +508,26 @@ impl App {
             video::Backend::None => video::NEEDS_PLAYER.to_string(),
         };
         ui.label(RichText::new(using).size(12.5).color(LEAF_DARK));
+        ui.add_space(4.0);
+        if ui.checkbox(&mut self.st.video_sound, "Play sound").on_hover_text("Videos play their sound too. A clip with the mute option stays silent.").changed() {
+            changed = true;
+        }
+        let vlc = matches!(video::backend(), video::Backend::Vlc(_));
+        let sound_note = match (&found.ffplay, self.st.video_sound) {
+            (_, false) => "Videos play without sound.".to_string(),
+            // VLC plays both the picture and the sound in its own window; ffplay is not needed.
+            (_, true) if vlc => "Sound plays in VLC, with the picture, in VLC's own window.".to_string(),
+            (Some(p), true) => format!("Sound plays through ffplay ({}), which comes with ffmpeg.", p.display()),
+            (None, true) => "No sound inside the slide: ffplay, which comes with ffmpeg, was not found. Install ffmpeg, or choose VLC, which plays sound in its own window.".to_string(),
+        };
+        ui.label(RichText::new(sound_note).size(12.5).color(MUTED));
         if matches!(video::backend(), video::Backend::None) || found.ffmpeg.is_none() {
             if let Some(said) = install_buttons(ui) {
                 self.status = said;
             }
         }
         if changed {
-            video::configure(&self.st.video_player, &self.st.ffmpeg_path, &self.st.vlc_path);
+            video::configure(&self.st.video_player, &self.st.ffmpeg_path, &self.st.vlc_path, self.st.video_sound);
             self.save_layout();
         }
     }

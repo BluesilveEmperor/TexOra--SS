@@ -240,7 +240,6 @@ pub struct Settings {
     pub keys: Vec<(Action, Vec<KeyBind>)>,
     pub engine: Engine,
     pub auto_compile: bool,
-    pub live_edit: bool,
     pub recent: Vec<PathBuf>,
     pub ink_color: [u8; 3],
     pub laser_color: [u8; 3],
@@ -259,6 +258,8 @@ pub struct Settings {
     /// Where ffmpeg and VLC are, when not found by themselves; empty means "find it".
     pub ffmpeg_path: String,
     pub vlc_path: String,
+    /// Videos play their sound (through ffplay, which comes with ffmpeg).
+    pub video_sound: bool,
     /// Look for a newer version when TeXora starts.
     pub check_updates: bool,
     /// A newer version the speaker chose to skip: its update notice is not shown again.
@@ -274,7 +275,6 @@ impl Default for Settings {
             keys: default_keys(),
             engine: Engine::Auto,
             auto_compile: true,
-            live_edit: true,
             recent: vec![],
             ink_color: [214, 40, 40],
             laser_color: [235, 30, 30],
@@ -286,6 +286,7 @@ impl Default for Settings {
             video_player: "auto".to_string(),
             ffmpeg_path: String::new(),
             vlc_path: String::new(),
+            video_sound: true,
             check_updates: true,
             skipped_update: String::new(),
             last_template: String::new(),

@@ -63,6 +63,8 @@ pub struct Info {
     pub height: u32,
     /// Seconds; 0 when unknown (a GIF before it has been played through).
     pub duration: f64,
+    /// Whether the clip has a sound track (a GIF never has).
+    pub has_audio: bool,
 }
 
 /// One picture, RGBA.
@@ -150,12 +152,16 @@ pub struct Tools {
     pub choice: Choice,
     pub ffmpeg: Option<PathBuf>,
     pub vlc: Option<PathBuf>,
+    /// ffplay, which comes with ffmpeg, plays a clip's sound beside the picture ffmpeg gives.
+    pub ffplay: Option<PathBuf>,
+    /// Settings > Video > Play sound.
+    pub sound: bool,
 }
 
 static TOOLS: RwLock<Option<Tools>> = RwLock::new(None);
 
 /// Takes the Settings: the choice, and the paths typed in (empty means "find it").
-pub fn configure(choice: &str, ffmpeg_path: &str, vlc_path: &str) {
+pub fn configure(choice: &str, ffmpeg_path: &str, vlc_path: &str, sound: bool) {
     let pick = |typed: &str, find: fn() -> Option<PathBuf>| {
         let t = typed.trim();
         if t.is_empty() {
@@ -164,7 +170,9 @@ pub fn configure(choice: &str, ffmpeg_path: &str, vlc_path: &str) {
             Some(PathBuf::from(t)).filter(|p| p.is_file())
         }
     };
-    let t = Tools { choice: Choice::from_setting(choice), ffmpeg: pick(ffmpeg_path, find_ffmpeg), vlc: pick(vlc_path, find_vlc) };
+    let ffmpeg = pick(ffmpeg_path, find_ffmpeg);
+    let ffplay = find_ffplay(ffmpeg.as_deref());
+    let t = Tools { choice: Choice::from_setting(choice), ffmpeg, vlc: pick(vlc_path, find_vlc), ffplay, sound };
     if let Ok(mut g) = TOOLS.write() {
         *g = Some(t);
     }
@@ -174,7 +182,7 @@ pub fn tools() -> Tools {
     if let Some(t) = TOOLS.read().ok().and_then(|g| g.clone()) {
         return t;
     }
-    configure("auto", "", "");
+    configure("auto", "", "", true);
     TOOLS.read().ok().and_then(|g| g.clone()).unwrap_or_default()
 }
 
@@ -215,6 +223,14 @@ fn exe(name: &str) -> String {
 pub fn find_ffmpeg() -> Option<PathBuf> {
     let name = exe("ffmpeg");
     search_dirs().into_iter().map(|d| d.join(&name)).find(|p| p.is_file())
+}
+
+/// ffplay, which comes with ffmpeg: beside the ffmpeg in use first (the same install), then the usual
+/// places.
+pub fn find_ffplay(ffmpeg: Option<&Path>) -> Option<PathBuf> {
+    let name = exe("ffplay");
+    let beside = ffmpeg.and_then(|f| f.parent()).map(|d| d.join(&name)).filter(|p| p.is_file());
+    beside.or_else(|| search_dirs().into_iter().map(|d| d.join(&name)).find(|p| p.is_file()))
 }
 
 /// VLC installed on this computer, if any.
@@ -338,13 +354,18 @@ pub fn ffmpeg_input_args(path: &Path, start: Option<f64>) -> Result<Vec<String>,
 }
 
 /// The arguments that open a clip in VLC: its full path, after `--` so it is never read as an option.
-pub fn vlc_args(path: &Path, repeat: bool) -> Result<Vec<String>, String> {
+/// `silent`: the clip's `mute` option, or Settings > Video > Play sound off. VLC plays the sound
+/// itself, so without ffmpeg (and ffplay) a clip opened in VLC is still heard.
+pub fn vlc_args(path: &Path, repeat: bool, silent: bool) -> Result<Vec<String>, String> {
     if !path.is_absolute() {
         return Err("TeXora only passes full paths to VLC.".into());
     }
     let mut a = vec!["--play-and-exit".to_string()];
     if repeat {
         a.push("--loop".into());
+    }
+    if silent {
+        a.push("--no-audio".into());
     }
     a.push("--".into());
     a.push(plain(path));
@@ -353,12 +374,12 @@ pub fn vlc_args(path: &Path, repeat: bool) -> Result<Vec<String>, String> {
 
 /// Opens a clip in VLC's own window. No shell is involved. Only a real video file is handed over (see
 /// `video_magic`): VLC would also play a playlist, which can point anywhere.
-pub fn open_in_vlc(vlc: &Path, path: &Path, repeat: bool) -> Result<(), String> {
+pub fn open_in_vlc(vlc: &Path, path: &Path, repeat: bool, silent: bool) -> Result<(), String> {
     if !head(path).is_ok_and(|h| video_magic(&h)) {
         return Err("it is not a video file VLC may open.".into());
     }
     let mut c = tool_command(vlc);
-    c.args(vlc_args(path, repeat)?).stdout(Stdio::null()).stderr(Stdio::null());
+    c.args(vlc_args(path, repeat, silent)?).stdout(Stdio::null()).stderr(Stdio::null());
     c.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
@@ -454,6 +475,7 @@ pub struct Probe {
     pub height: u32,
     pub fps: f64,
     pub duration: f64,
+    pub has_audio: bool,
 }
 
 /// Reads what `ffmpeg -i <file>` writes about a file. None when it has no video stream.
@@ -487,7 +509,8 @@ pub fn parse_probe(text: &str) -> Option<Probe> {
     // ffmpeg turns a phone video upright as it decodes it, so its size is then the other way round.
     let turned = text.lines().any(|l| l.contains("rotation of") && (l.contains("90.00") || l.contains("270.00")));
     let (width, height) = if turned { (size.1, size.0) } else { size };
-    Some(Probe { width, height, fps, duration: duration.unwrap_or(0.0) })
+    let has_audio = text.lines().any(|l| l.contains("Stream #") && l.contains("Audio:"));
+    Some(Probe { width, height, fps, duration: duration.unwrap_or(0.0), has_audio })
 }
 
 /// Asks ffmpeg what a file holds.
@@ -522,7 +545,7 @@ impl FfmpegStream {
     pub fn open(ffmpeg: &Path, path: &Path, from: f64) -> Result<FfmpegStream, Problem> {
         let p = probe(ffmpeg, path)?;
         let size = read_size(p.width, p.height);
-        let info = Info { kind: Kind::External, width: size.0, height: size.1, duration: p.duration };
+        let info = Info { kind: Kind::External, width: size.0, height: size.1, duration: p.duration, has_audio: p.has_audio };
         let mut s = FfmpegStream { info, ffmpeg: ffmpeg.to_path_buf(), path: path.to_path_buf(), fps: p.fps, size, child: None, start: 0.0, n: 0 };
         s.start_at(from)?;
         Ok(s)
@@ -580,6 +603,144 @@ impl Stream for FfmpegStream {
     }
 }
 
+// ---------- sound ----------
+
+/// The arguments that play a clip's sound with ffplay from `start` seconds: no window (`-nodisp`), no
+/// picture or subtitles, and the same safety as for ffmpeg: local files only, real video formats only,
+/// the file as `file:<full path>`. ffplay ends by itself at the end of the sound (`-autoexit`).
+pub fn ffplay_args(path: &Path, start: f64) -> Result<Vec<String>, Problem> {
+    if !path.is_absolute() {
+        return Err(Problem::Refused("TeXora only passes full paths to ffplay.".into()));
+    }
+    // -stats: ffplay reports where the sound is, which the picture follows.
+    let mut a: Vec<String> = ["-hide_banner", "-loglevel", "error", "-stats", "-nodisp", "-autoexit", "-vn", "-sn", "-protocol_whitelist", "file", "-format_whitelist", FFMPEG_FORMATS].iter().map(|s| s.to_string()).collect();
+    a.push("-ss".into());
+    a.push(format!("{:.3}", start.max(0.0)));
+    // -ss alone lands on the picture's key frame before `start`, seconds early; the trim drops the
+    // sound before `start`, so it starts exactly where the picture does.
+    if start > 0.0 {
+        a.push("-af".into());
+        a.push(format!("atrim=start={start:.3}"));
+    }
+    a.push("-i".into());
+    a.push(ffmpeg_input(path));
+    Ok(a)
+}
+
+/// Plays a clip's sound beside its picture, through ffplay (which comes with ffmpeg). TeXora decodes
+/// no sound itself: ffplay is a separate program from the person's own ffmpeg install. It is started
+/// when the clip plays, from the clip's position, and ended on pause, at the end and when the slide
+/// changes, so the sound always follows the picture.
+pub struct SoundPlayer {
+    ffplay: PathBuf,
+    path: PathBuf,
+    child: Option<Child>,
+    /// The sound's own clock, read from what ffplay reports while it plays: a new one for each start,
+    /// so a stopped ffplay can never move the clock of the next.
+    clock: std::sync::Arc<std::sync::Mutex<SoundClock>>,
+}
+
+/// Where the sound is, as ffplay reports it about every 30 ms (the time heard now, its output delay
+/// taken into account). Between reports it is carried on with the computer's clock; each report
+/// nudges the estimate, so the 10 ms rounding of the reports evens out.
+#[derive(Default)]
+pub struct SoundClock {
+    /// Clip seconds minus `since` seconds, once ffplay has reported a time.
+    offset: Option<f64>,
+    since: Option<Instant>,
+}
+
+impl SoundClock {
+    pub fn report(&mut self, clip: f64, now: Instant) {
+        let since = *self.since.get_or_insert(now);
+        let off = clip - now.duration_since(since).as_secs_f64();
+        self.offset = Some(match self.offset {
+            // A jump (a new start, or the sound held up) is taken at once; small differences are evened out.
+            Some(o) if (off - o).abs() < 0.05 => o + (off - o) * 0.2,
+            _ => off,
+        });
+    }
+
+    pub fn at(&self, now: Instant) -> Option<f64> {
+        Some(self.offset? + now.duration_since(self.since?).as_secs_f64())
+    }
+}
+
+/// The sound time in one line of ffplay's report ("  12.34 M-A: ..."), when it has one yet.
+pub fn parse_ffplay_clock(line: &str) -> Option<f64> {
+    let (t, rest) = line.trim_start().split_once(char::is_whitespace)?;
+    if !rest.trim_start().starts_with("M-A") {
+        return None;
+    }
+    t.parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+impl SoundPlayer {
+    /// A sound player for a clip, when it has a sound track, sound is on and ffplay is installed.
+    pub fn for_clip(path: &Path, info: &Info, mute: bool) -> Option<SoundPlayer> {
+        let t = tools();
+        if mute || !t.sound || !info.has_audio || info.kind != Kind::External {
+            return None;
+        }
+        Some(SoundPlayer { ffplay: t.ffplay?, path: path.to_path_buf(), child: None, clock: Default::default() })
+    }
+
+    /// Plays from `seconds` into the clip, ending any sound already playing.
+    pub fn play_from(&mut self, seconds: f64) {
+        self.stop();
+        let Ok(args) = ffplay_args(&self.path, seconds) else { return };
+        let mut c = tool_command(&self.ffplay);
+        c.args(args).stdout(Stdio::null()).stderr(Stdio::piped());
+        self.clock = Default::default();
+        self.child = c.spawn().ok();
+        // ffplay writes where the sound is to its error output, each report ending in a carriage return.
+        if let Some(err) = self.child.as_mut().and_then(|c| c.stderr.take()) {
+            let clock = self.clock.clone();
+            let _ = std::thread::Builder::new().name("ffplay-clock".into()).spawn(move || {
+                let mut line = Vec::new();
+                for b in BufReader::new(err).bytes() {
+                    let Ok(b) = b else { break };
+                    if b == b'\r' || b == b'\n' {
+                        if let Some(t) = parse_ffplay_clock(&String::from_utf8_lossy(&line)) {
+                            if let Ok(mut c) = clock.lock() {
+                                c.report(t, Instant::now());
+                            }
+                        }
+                        line.clear();
+                    } else if line.len() < 200 {
+                        line.push(b);
+                    }
+                }
+            });
+        }
+    }
+
+    /// Seconds into the clip of the sound heard now, once ffplay has started playing it.
+    pub fn clock(&self) -> Option<f64> {
+        self.clock.lock().ok()?.at(Instant::now())
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(mut c) = self.child.take() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+
+    /// Whether ffplay is playing now (it ends by itself at the end of the sound).
+    #[cfg(test)]
+    pub fn playing(&mut self) -> bool {
+        self.child.as_mut().is_some_and(|c| matches!(c.try_wait(), Ok(None)))
+    }
+}
+
+impl Drop for SoundPlayer {
+    /// The sound goes with the clip: another slide ends it.
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 // ---------- GIF ----------
 
 pub struct GifStream {
@@ -593,7 +754,7 @@ pub struct GifStream {
 
 impl GifStream {
     pub fn open(path: &Path) -> Result<GifStream, Problem> {
-        let mut s = GifStream { info: Info { kind: Kind::Gif, width: 0, height: 0, duration: 0.0 }, path: path.to_path_buf(), frames: None, at: 0.0, pending: None };
+        let mut s = GifStream { info: Info { kind: Kind::Gif, width: 0, height: 0, duration: 0.0, has_audio: false }, path: path.to_path_buf(), frames: None, at: 0.0, pending: None };
         s.restart()?;
         Ok(s)
     }
@@ -705,7 +866,9 @@ mod tests {
     #[test]
     fn ffmpeg_output_is_read() {
         let text = "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'file:/x/test.mp4':\n  Duration: 00:00:04.00, start: 0.000000, bitrate: 941 kb/s\n  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 640x360 [SAR 1:1 DAR 16:9], 937 kb/s, 30 fps, 30 tbr, 15360 tbn (default)\n";
-        assert_eq!(parse_probe(text), Some(Probe { width: 640, height: 360, fps: 30.0, duration: 4.0 }));
+        assert_eq!(parse_probe(text), Some(Probe { width: 640, height: 360, fps: 30.0, duration: 4.0, has_audio: false }));
+        let with_sound = format!("{text}  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, mono, fltp, 124 kb/s (default)\n");
+        assert!(parse_probe(&with_sound).unwrap().has_audio);
         let phone = "  Duration: 00:01:02.50, start: 0.000000\n  Stream #0:0: Video: hevc (Main) (hvc1 / 0x31637668), yuv420p(tv, bt709), 1920x1080, 29.97 fps, 29.97 tbr\n      displaymatrix: rotation of -90.00 degrees\n";
         let p = parse_probe(phone).unwrap();
         assert_eq!((p.width, p.height, p.duration), (1080, 1920, 62.5));
@@ -734,10 +897,100 @@ mod tests {
         assert!(ffmpeg_input_args(Path::new("clip.mp4"), None).is_err(), "only full paths");
         // VLC: the full path after "--", so a name starting with "-" is never an option.
         let named = talk.join("--extraintf=http.mp4");
-        let v = vlc_args(&named, true).unwrap();
+        let v = vlc_args(&named, true, false).unwrap();
         assert_eq!(v, vec!["--play-and-exit".to_string(), "--loop".to_string(), "--".to_string(), plain(&named)]);
         assert!(!v[3].starts_with('-'), "a full path never starts with '-'");
-        assert!(vlc_args(Path::new("--extraintf=http.mp4"), false).is_err(), "only full paths");
+        assert!(vlc_args(Path::new("--extraintf=http.mp4"), false, false).is_err(), "only full paths");
+        // VLC plays the sound itself; a muted clip, or sound turned off, gets none.
+        let quiet = vlc_args(&named, false, true).unwrap();
+        assert_eq!(quiet, vec!["--play-and-exit".to_string(), "--no-audio".to_string(), "--".to_string(), plain(&named)]);
+    }
+
+    #[test]
+    fn ffplay_arguments_are_safe() {
+        let clip = std::env::temp_dir().join("talk").join("-x clip.mp4");
+        let a = ffplay_args(&clip, 1.5).unwrap();
+        let at = |s: &str| a.iter().position(|x| x == s).unwrap();
+        for o in ["-nodisp", "-autoexit", "-vn"] {
+            assert!(a.contains(&o.to_string()), "{o}");
+        }
+        assert_eq!(a[at("-protocol_whitelist") + 1], "file");
+        assert_eq!(a[at("-format_whitelist") + 1], FFMPEG_FORMATS);
+        assert_eq!(a[at("-ss") + 1], "1.500");
+        assert_eq!(a.last().unwrap(), &format!("file:{}", plain(&clip)));
+        assert!(ffplay_args(Path::new("clip.mp4"), 0.0).is_err(), "only full paths");
+    }
+
+    /// With the real ffplay: the sound starts with the clip, from where it is, and stops on pause.
+    #[test]
+    fn sound_plays_and_stops_with_the_clip() {
+        let (Some(ff), Some(_)) = (find_ffmpeg(), find_ffplay(find_ffmpeg().as_deref())) else { return };
+        let s = FfmpegStream::open(&ff, &clip("test.mp4"), 0.0).unwrap();
+        assert!(s.info().has_audio, "the test clip has a 440 Hz tone");
+        if !tools().sound {
+            return;
+        }
+        assert!(SoundPlayer::for_clip(&clip("test.mp4"), s.info(), true).is_none(), "mute: no sound");
+        let mut gif = GifStream::open(&clip("test.gif")).unwrap();
+        gif.next_frame();
+        assert!(SoundPlayer::for_clip(&clip("test.gif"), gif.info(), false).is_none(), "a GIF has no sound");
+        let mut p = SoundPlayer::for_clip(&clip("test.mp4"), s.info(), false).expect("sound");
+        let asked = Instant::now();
+        p.play_from(1.0);
+        std::thread::sleep(Duration::from_millis(600));
+        assert!(p.playing(), "ffplay plays the sound");
+        // ffplay reports where the sound is, starting from exactly where it was asked to. A busy
+        // computer can take a while to start it, so the first report is waited for.
+        while p.clock().is_none() && asked.elapsed() < Duration::from_secs(3) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let heard = p.clock().expect("ffplay reports its sound clock");
+        let most = 1.05 + asked.elapsed().as_secs_f64();
+        assert!((0.95..most).contains(&heard), "sound clock {heard} after starting at 1.0");
+        p.stop();
+        assert!(!p.playing(), "and stops on pause");
+        // Played from near the end, it ends by itself with the clip.
+        p.play_from(3.8);
+        let start = Instant::now();
+        while p.playing() && start.elapsed() < Duration::from_secs(6) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(!p.playing(), "ffplay ends at the end of the sound");
+    }
+
+    #[test]
+    fn the_sound_clock_is_read_from_ffplay() {
+        assert_eq!(parse_ffplay_clock("  12.34 M-A:  0.000 fd=   0 aq=   16KB vq=    0KB sq=    0B "), Some(12.34));
+        assert_eq!(parse_ffplay_clock("  -0.02 M-A:  0.000 fd=   0"), Some(-0.02));
+        assert_eq!(parse_ffplay_clock("    nan M-A:    nan fd=   0"), None, "no time before the sound starts");
+        assert_eq!(parse_ffplay_clock("    nan    :  0.000 fd=   0"), None);
+        assert_eq!(parse_ffplay_clock("[aac @ 0x1] error"), None);
+        // Reports rounded to 10 ms even out, and the clock runs on between them.
+        let t0 = Instant::now();
+        let mut c = SoundClock::default();
+        assert!(c.at(t0).is_none());
+        for i in 0..40 {
+            let now = t0 + Duration::from_millis(30 * i);
+            let exact = 5.0 + 0.030 * i as f64;
+            c.report((exact * 100.0).round() / 100.0, now);
+        }
+        let later = t0 + Duration::from_millis(30 * 39 + 15);
+        let want = 5.0 + 0.030 * 39.0 + 0.015;
+        assert!((c.at(later).unwrap() - want).abs() < 0.006, "clock {} vs {want}", c.at(later).unwrap());
+        // A jump (a new place in the clip) is taken at once.
+        c.report(9.0, later);
+        assert!((c.at(later).unwrap() - 9.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_sound_starts_exactly_where_the_picture_does() {
+        let clip = std::path::PathBuf::from(plain(&std::env::temp_dir().join("clip.mp4")));
+        let a = ffplay_args(&clip, 20.0).unwrap();
+        let at = a.iter().position(|x| x == "-af").expect("a trim after a seek");
+        assert_eq!(a[at + 1], "atrim=start=20.000");
+        assert!(at < a.iter().position(|x| x == "-i").unwrap(), "options come before the file");
+        assert!(!ffplay_args(&clip, 0.0).unwrap().contains(&"-af".to_string()), "nothing to trim from the start");
+        assert!(a.contains(&"-stats".to_string()), "ffplay reports its clock");
     }
 
     #[test]
@@ -750,7 +1003,7 @@ mod tests {
         assert!(video_magic(&head(&clip("test.mp4")).unwrap()));
         assert!(video_magic(&head(&clip("hevc.mp4")).unwrap()));
         assert!(!video_magic(&head(&clip("test.txt")).unwrap()));
-        assert!(open_in_vlc(Path::new("/nonexistent/vlc"), &hls, false).unwrap_err().contains("not a video"));
+        assert!(open_in_vlc(Path::new("/nonexistent/vlc"), &hls, false, false).unwrap_err().contains("not a video"));
     }
 
     /// With the real ffmpeg: files that are really a concat list or an HLS playlist, named `.mp4`, are

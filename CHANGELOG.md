@@ -2,6 +2,20 @@
 
 All notable changes to TeXora. The newest version is first.
 
+## 1.5.1
+
+### Fixed
+
+- **Editing in LaTeX Studio.** After a click on Save, Compile, a checkbox or the slide, the editor lost the keyboard, so the next letters ran presenter shortcuts instead of typing: **B** blacked out the slide and the arrows changed slides and moved the cursor. The keyboard now stays with the editor; another text box (such as Search) still gets its own typing.
+- **No more rebuilding as you type.** The **Live** box is gone: typing never saves or rebuilds by itself. Press **Compile** (Cmd/Ctrl+B), or **Save** (Cmd/Ctrl+S) with **Rebuild on save** on.
+- A file opened from a terminal with a short path (`texora talk.tex`) now compiles and checks its packages; before, both failed with "No such file or directory".
+- Videos play with their sound. The sound comes from ffplay, which is part of every ffmpeg install (TeXora finds it beside your ffmpeg), and follows the picture: it starts, pauses and starts again from the same place, starts again with a `loop` clip, and stops when you show another slide. TeXora still contains no decoder of its own.
+- **Settings > Video > Play sound** turns video sound on or off (on by default), and the `mute` option of `\includevideo` now keeps one clip silent. GIFs have no sound.
+- ffplay runs with the same safety as ffmpeg: no window, no shell, local files only and real video formats only.
+- The Video Guide template's sample video has a soft chord, so you can hear sound working.
+- **Sound with VLC only.** Without ffmpeg, a clip opened in VLC plays its sound in VLC (ffplay is not needed). The `mute` option and **Settings > Video > Play sound** off now also keep VLC silent, and Settings > Video says where the sound plays.
+- **Picture and sound in sync.** The picture now follows the sound's own clock (ffplay reports it), so it waits the moment ffplay takes to start instead of running ahead. Measured with a clip that flashes and beeps each second: the picture was 730 ms ahead of the sound, now within about 5 ms, also after pause and play. After a pause the sound starts again exactly where the picture is (before, it could start seconds early, from the last key frame).
+
 ## 1.5.0
 
 ### Security

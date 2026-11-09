@@ -308,7 +308,6 @@ impl App {
                     engine_combo(ui, &mut self.st.engine);
                 });
                 ui.checkbox(&mut self.st.auto_compile, "Rebuild when the source changes");
-                ui.checkbox(&mut self.st.live_edit, "Live editing: save and rebuild as you type");
             });
             // Tools > Check required packages opens this section.
             let force = std::mem::take(&mut self.show_packages).then_some(true);

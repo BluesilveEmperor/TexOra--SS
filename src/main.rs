@@ -8,6 +8,7 @@ mod bidi;
 mod rtl_edit;
 mod cli;
 mod deck;
+mod fold;
 mod latex;
 mod media;
 mod notes;
@@ -181,7 +182,7 @@ fn main() -> eframe::Result {
     let audience_shot = App::audience_only_shot(&args.view);
     let size = args.window.unwrap_or(if audience_shot { [1100.0, 825.0] } else { [1388.0, 900.0] });
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title(if audience_shot { "TeXora Audience View" } else { "TeXora" })
+        .with_title(if audience_shot { "TeXora Audience View".to_string() } else { format!("TeXora {}", update::VERSION) })
         .with_app_id("texora")
         .with_inner_size(size)
         .with_min_inner_size([820.0, 560.0]);

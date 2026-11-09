@@ -100,6 +100,8 @@ pub struct Source {
     pub synced_line: usize,
     pub line_changed: Instant,
     pub goto_line: Option<usize>,
+    /// First lines of the folded blocks in the studio's editor.
+    pub folded: std::collections::BTreeSet<usize>,
 }
 
 /// Where one animation is: the frame on show, whether it plays, which way, and when the next frame is due.
@@ -603,6 +605,7 @@ impl App {
             synced_line: 0,
             line_changed: Instant::now(),
             goto_line: None,
+            folded: Default::default(),
         })
     }
 
@@ -855,7 +858,11 @@ impl App {
                 "Compiled with {} in {:.1}s{}",
                 r.engine.name(),
                 r.seconds,
-                if warns > 0 { format!(", {warns} warning(s)") } else { String::new() }
+                match warns {
+                    0 => String::new(),
+                    1 => ", no errors, 1 warning".to_string(),
+                    w => format!(", no errors, {w} warnings"),
+                }
             );
             self.status = self.compile_note.clone();
             self.open_after_compile = false;

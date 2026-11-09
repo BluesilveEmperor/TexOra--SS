@@ -2935,7 +2935,7 @@ dependencies = [
 
 [[package]]
 name = "texora"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "dirs",
  "display-info",

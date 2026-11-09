@@ -26,7 +26,15 @@ if [ -x "$APP/Contents/MacOS/TeXora" ] && [ -L "$MOUNT/Applications" ]; then
   case "$NAME" in x64) RUN="arch -x86_64" ;; *) RUN="" ;; esac
   if $RUN "$APP/Contents/MacOS/TeXora" --version | grep -q "TeXora $VERSION"; then OK=1; fi
 fi
-hdiutil detach -quiet "$MOUNT"
+# macOS can keep the image busy for a moment after the app exits (Spotlight looks at new volumes), so
+# the image is let go of again after a pause, and forced as a last resort.
+for _ in 1 2 3 4 5; do
+  hdiutil detach -quiet "$MOUNT" 2>/dev/null && break
+  sleep 2
+done
+if mount | grep -q " on $MOUNT "; then
+  hdiutil detach -quiet -force "$MOUNT"
+fi
 if [ "$OK" = 1 ]; then
   echo "Installer: $PKG.dmg opens, holds TeXora.app and an Applications link, and the app runs; signed ad hoc"
   echo "Installer: $PKG.dmg checked, signed ad hoc" >> "$OUT/$PKG.validation.txt"

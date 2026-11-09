@@ -87,6 +87,34 @@ fn char_of_line(text: &str, line: usize) -> usize {
     chars
 }
 
+/// The Problems tab's name, with errors and warnings counted apart.
+pub fn problems_tab(errors: usize, warnings: usize) -> String {
+    let n = |k: usize, one: &str| format!("{k} {one}{}", if k == 1 { "" } else { "s" });
+    match (errors, warnings) {
+        (0, 0) => "Problems (0)".to_string(),
+        (0, w) => format!("Problems: {}", n(w, "warning")),
+        (e, 0) => format!("Problems: {}", n(e, "error")),
+        (e, w) => format!("Problems: {}, {}", n(e, "error"), n(w, "warning")),
+    }
+}
+
+/// Opens every folded block that hides `line`.
+fn open_folds_at(regions: &[crate::fold::Region], folded: &mut std::collections::BTreeSet<usize>, line: usize) {
+    for r in regions.iter().filter(|r| r.start < line && line <= r.end) {
+        folded.remove(&r.start);
+    }
+}
+
+/// What a fold arrow's tip names: "\begin{frame}", "\section", "the preamble", "this group".
+fn fold_label(r: &crate::fold::Region) -> String {
+    match r.kind {
+        crate::fold::Kind::Environment => format!("\\begin{{{}}} … \\end{{{}}}", r.name, r.name),
+        crate::fold::Kind::Section => format!("this \\{}", r.name),
+        crate::fold::Kind::Preamble => "the preamble".to_string(),
+        crate::fold::Kind::Group => "this {…} group".to_string(),
+    }
+}
+
 fn line_of_char(text: &str, ch: usize) -> usize {
     text.chars().take(ch).filter(|c| *c == '\n').count() + 1
 }
@@ -180,7 +208,7 @@ impl App {
                     self.log_wrap = !self.log_wrap;
                 }
                 ui.add_space(8.0);
-                for (tab, label) in [(LogTab::Log, "Full log".to_string()), (LogTab::Packages, format!("Packages ({missing} missing)")), (LogTab::Problems, format!("Problems ({})", errs + warns))] {
+                for (tab, label) in [(LogTab::Log, "Full log".to_string()), (LogTab::Packages, format!("Packages ({missing} missing)")), (LogTab::Problems, problems_tab(errs, warns))] {
                     if ui.add(Button::selectable(self.log_tab == tab, RichText::new(label).size(13.0))).clicked() {
                         self.log_tab = tab;
                         self.log_open = true;
@@ -219,16 +247,37 @@ impl App {
         if self.problems.is_empty() {
             ui.label(RichText::new("No problems.").color(MUTED));
         }
-        for p in self.problems.clone() {
-            let c = if p.is_error { BAD } else { WARN };
-            let where_ = p.line.map(|l| format!("line {l}: ")).unwrap_or_default();
-            let lbl = Label::new(RichText::new(format!("{where_}{}", p.message)).color(c).size(13.5)).sense(Sense::click());
-            let r = ui.add(lbl).on_hover_text("Click to go to this line");
-            if r.clicked() {
-                if let (Some(l), Some(s)) = (p.line, &mut self.src) {
-                    s.goto_line = Some(l);
+        // Errors first, then warnings, each under its own heading: a warning does not stop the build.
+        for (errors, title, color, word) in [(true, "Errors", BAD, "Error"), (false, "Warnings", WARN, "Warning")] {
+            let list: Vec<_> = self.problems.iter().filter(|p| p.is_error == errors).cloned().collect();
+            if list.is_empty() {
+                continue;
+            }
+            let note = if errors { "these stop the slides from being built" } else { "these do not stop the build, but are worth a look" };
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("{title} ({})", list.len())).color(color).strong().size(13.5));
+                ui.label(RichText::new(note).color(MUTED).size(12.5));
+            });
+            for p in list {
+                let r = ui
+                    .horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        let (chip, _) = ui.allocate_exact_size(vec2(62.0, 18.0), Sense::hover());
+                        ui.painter().rect_filled(chip, 4.0, color.gamma_multiply(0.14));
+                        ui.painter().text(chip.center(), Align2::CENTER_CENTER, word, FontId::proportional(11.5), color);
+                        let where_ = p.line.map(|l| format!("line {l}: ")).unwrap_or_default();
+                        let text = if errors { color } else { Color32::from_rgb(120, 80, 20) };
+                        ui.add(Label::new(RichText::new(format!("{where_}{}", p.message)).color(text).size(13.5)).sense(Sense::click()))
+                    })
+                    .inner
+                    .on_hover_text("Click to go to this line");
+                if r.clicked() {
+                    if let (Some(l), Some(s)) = (p.line, &mut self.src) {
+                        s.goto_line = Some(l);
+                    }
                 }
             }
+            ui.add_space(6.0);
         }
     }
 
@@ -280,26 +329,43 @@ impl App {
         ui.label(RichText::new(src.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()).size(12.0).color(MUTED));
         let size = self.st.editor_size;
         let row_h = ui.fonts_mut(|f| f.row_height(&FontId::monospace(size)));
-        let lines = src.text.lines().count().max(1);
-        let gutter = size * 3.4;
+        // Blocks that fold: environments, sections, the preamble and long {…} groups (see fold.rs).
+        let regions = crate::fold::regions(&src.text);
+        src.folded.retain(|l| regions.iter().any(|r| r.start == *l));
         let id = sid("tex-editor");
         let goto = src.goto_line.take();
         if let Some(l) = goto {
+            // A jump into a folded block opens it.
+            open_folds_at(&regions, &mut src.folded, l);
             let mut st = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
             let at = CCursor::new(char_of_line(&src.text, l));
             st.cursor.set_char_range(Some(CCursorRange::one(at)));
             TextEdit::store_state(ui.ctx(), id, st);
         }
+        let hidden = crate::fold::hidden_lines(&regions, &src.folded);
+        let lines = src.text.split('\n').count().max(1);
+        let shown = (lines - hidden.iter().map(|(a, b)| b + 1 - a).sum::<usize>()).max(1);
+        // Room on the left of the numbers for the fold arrows, and on the right for the block guide.
+        let gutter = size * 4.4;
         let errors: Vec<usize> = self.problems.iter().filter(|p| p.is_error).filter_map(|p| p.line).collect();
+        let warnings: Vec<usize> = self.problems.iter().filter(|p| !p.is_error).filter_map(|p| p.line).collect();
         let wrap = self.st.editor_wrap;
+        let folded_now = src.folded.clone();
+        let lines_before = lines;
+        let edit_line = src.cursor_line;
+        let mut toggle: Option<usize> = None;
         let area = if wrap { ScrollArea::vertical() } else { ScrollArea::both() };
         // Each mode keeps its own scroll position, so switching does not leave the view off to the side.
         area.id_salt(("editor-scroll", wrap)).auto_shrink([false, false]).show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
-                let (g, _) = ui.allocate_exact_size(vec2(gutter, row_h * lines as f32 + 8.0), Sense::hover());
+                let (g, _) = ui.allocate_exact_size(vec2(gutter, row_h * shown as f32 + 8.0), Sense::hover());
                 let mut layouter = |ui: &Ui, buf: &dyn TextBuffer, w: f32| {
-                    let mut job = highlight(buf.as_str(), size);
+                    let text = buf.as_str();
+                    let mut job = highlight(text, size);
+                    // Worked out from the text being laid out, so the hidden bytes always fall on whole lines.
+                    let hidden = crate::fold::hidden_lines(&crate::fold::regions(text), &folded_now);
+                    crate::fold::hide(&mut job, &crate::fold::byte_ranges(text, &hidden));
                     job.wrap.max_width = if wrap { w.max(size * 4.0) } else { f32::INFINITY };
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
@@ -307,43 +373,106 @@ impl App {
                     .id(id)
                     .code_editor()
                     .desired_width(f32::INFINITY)
-                    .desired_rows(lines.max(30))
+                    .desired_rows(shown.max(30))
                     .frame(Frame::NONE)
                     .margin(Margin::ZERO)
                     .layouter(&mut layouter)
                     .show(ui);
                 // Numbers follow the rows actually drawn, so they stay level with the text. A wrapped
-                // line takes several rows but gets one number, on its first row.
+                // line takes several rows but gets one number, on its first row; a folded line none.
                 let clip = ui.clip_rect();
                 let mut line_y = Vec::with_capacity(lines);
+                let mut line_right = Vec::with_capacity(lines);
                 let mut starts_line = true;
                 for row in out.galley.rows.iter() {
                     let y = out.galley_pos.y + row.pos.y;
                     if starts_line {
                         line_y.push(y);
+                        line_right.push(out.galley_pos.x + row.pos.x + row.size.x);
                         let n = line_y.len();
-                        if y + row_h >= clip.top() && y <= clip.bottom() {
+                        if y + row_h >= clip.top() && y <= clip.bottom() && !crate::fold::is_hidden(&hidden, n) {
                             let c = if errors.contains(&n) {
                                 BAD
+                            } else if warnings.contains(&n) {
+                                WARN
                             } else if n == src.cursor_line {
                                 INK
                             } else {
                                 Color32::from_gray(165)
                             };
-                            ui.painter().text(pos2(g.right() - 10.0, y), Align2::RIGHT_TOP, n.to_string(), FontId::monospace(size - 1.0), c);
+                            ui.painter().text(pos2(g.right() - 12.0, y), Align2::RIGHT_TOP, n.to_string(), FontId::monospace(size - 1.0), c);
                         }
+                    } else if let Some(r) = line_right.last_mut() {
+                        *r = r.max(out.galley_pos.x + row.pos.x + row.size.x);
                     }
                     starts_line = row.ends_with_newline;
+                }
+                let y_of = |l: usize| line_y.get(l.saturating_sub(1)).copied();
+                // The block guide: a bar beside the numbers from the start to the end of the block the
+                // cursor is in, and a light band on its first and last lines.
+                if let Some(b) = crate::fold::innermost(&regions, src.cursor_line).filter(|b| !src.folded.contains(&b.start)) {
+                    if let (Some(top), Some(bottom)) = (y_of(b.start), y_of(b.end)) {
+                        let x = g.right() - 5.0;
+                        ui.painter().line_segment([pos2(x, top + 2.0), pos2(x, bottom + row_h - 2.0)], Stroke::new(2.0, LEAF));
+                        let band = Color32::from_rgba_unmultiplied(74, 132, 58, 24);
+                        for y in [top, bottom] {
+                            ui.painter().rect_filled(Rect::from_min_max(pos2(g.right(), y), pos2(clip.right(), y + row_h)), 0.0, band);
+                        }
+                    }
+                }
+                // Fold arrows: pointing down on an open block, right on a folded one. A folded block
+                // shows how many lines it holds after its first line.
+                for r in &regions {
+                    if crate::fold::is_hidden(&hidden, r.start) {
+                        continue;
+                    }
+                    let Some(y) = y_of(r.start) else { continue };
+                    if y + row_h < clip.top() || y > clip.bottom() {
+                        continue;
+                    }
+                    let folded = src.folded.contains(&r.start);
+                    let hit = Rect::from_min_size(pos2(g.left(), y), vec2(size * 1.3, row_h));
+                    let resp = ui.interact(hit, sid("tex-fold").with(r.start), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+                    let tip = if folded { "Unfold" } else { "Fold" };
+                    let resp = resp.on_hover_text(format!("{tip} {}", fold_label(r)));
+                    let c = if resp.hovered() { INK } else if folded { MUTED } else { Color32::from_gray(190) };
+                    let m = hit.center();
+                    let k = size * 0.28;
+                    let pts = if folded { vec![pos2(m.x - k * 0.6, m.y - k), pos2(m.x + k * 0.8, m.y), pos2(m.x - k * 0.6, m.y + k)] } else { vec![pos2(m.x - k, m.y - k * 0.6), pos2(m.x + k, m.y - k * 0.6), pos2(m.x, m.y + k * 0.8)] };
+                    ui.painter().add(Shape::convex_polygon(pts, c, Stroke::NONE));
+                    if resp.clicked() {
+                        toggle = Some(r.start);
+                    }
+                    if folded {
+                        let x = line_right.get(r.start - 1).copied().unwrap_or(g.right()) + size * 0.6;
+                        let label = format!("⋯ {} lines", r.end - r.start);
+                        let font = FontId::proportional(size * 0.85);
+                        let galley = ui.painter().layout_no_wrap(label, font, MUTED);
+                        let chip = Rect::from_min_size(pos2(x, y + (row_h - galley.size().y) / 2.0 - 1.0), galley.size() + vec2(10.0, 2.0));
+                        let chip_resp = ui.interact(chip, sid("tex-fold-chip").with(r.start), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text("Unfold");
+                        ui.painter().rect_filled(chip, 4.0, if chip_resp.hovered() { LEAF_SOFT } else { Color32::from_gray(232) });
+                        ui.painter().galley(chip.min + vec2(5.0, 1.0), galley, MUTED);
+                        if chip_resp.clicked() {
+                            toggle = Some(r.start);
+                        }
+                    }
                 }
                 if out.response.changed() {
                     src.dirty = true;
                     src.last_edit = std::time::Instant::now();
+                    // Folds below the edit move with their lines.
+                    let after = src.text.split('\n').count();
+                    crate::fold::shift(&mut src.folded, edit_line, after as isize - lines_before as isize);
                 }
                 if let Some(r) = out.cursor_range {
                     let line = line_of_char(&src.text, r.primary.index.0);
                     if line != src.cursor_line {
                         src.cursor_line = line;
                         src.line_changed = std::time::Instant::now();
+                    }
+                    // The cursor never stays inside folded lines: the block opens.
+                    if crate::fold::is_hidden(&hidden, line) {
+                        open_folds_at(&regions, &mut src.folded, line);
                     }
                 }
                 if let Some(l) = goto {
@@ -353,6 +482,12 @@ impl App {
                 }
             });
         });
+        if let Some(l) = toggle {
+            if !src.folded.remove(&l) {
+                src.folded.insert(l);
+            }
+            ui.ctx().request_repaint();
+        }
         let wait = src.line_changed.elapsed().as_secs_f32();
         // Not while a rebuild is running: LaTeX is rewriting the map between source and slides then, and
         // a look-up in the half-written map lands on the first page.
@@ -613,6 +748,14 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn the_problems_tab_counts_errors_and_warnings_apart() {
+        assert_eq!(problems_tab(0, 0), "Problems (0)");
+        assert_eq!(problems_tab(0, 8), "Problems: 8 warnings");
+        assert_eq!(problems_tab(1, 0), "Problems: 1 error");
+        assert_eq!(problems_tab(2, 1), "Problems: 2 errors, 1 warning");
+    }
 
     #[test]
     fn highlighting_keeps_every_character() {

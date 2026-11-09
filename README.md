@@ -65,7 +65,7 @@ can be edited in the built-in LaTeX studio or in any other editor.
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Presenter view**       | Notes, current and next slide, overlay step, elapsed time, pace against a set duration, and a clock. Large-slide and split views.              |
 | **Audience window**      | Fullscreen on a projector or second display (F5). Black screen, whiteboard and freeze.                                                         |
-| **LaTeX studio**         | Source editor beside a slide and notes preview, with problems listed by line and SyncTeX links between slide and source.                       |
+| **LaTeX studio**         | Source editor with code folding and block guides, beside a slide and notes preview; errors and warnings listed apart; SyncTeX links. |
 | **LaTeX Beamer**         | Compiles with pdfLaTeX, XeLaTeX or LuaLaTeX, chosen from `% !TEX program` or the packages used. Rebuilds when the file is saved in any editor. |
 | **Required packages**    | Lists every package, theme and program a file needs, with how to install the missing ones.                                                     |
 | **Speaker notes**        | From Beamer notes pages, `\note{}`, `.pdfpc` files or a Markdown file; editable in the app, in any language.                                   |
@@ -335,6 +335,14 @@ right, and compile messages at the bottom. Typing never saves or rebuilds by its
 | **Wrap text**       | Wraps long lines at the editor's width                                              |
 | **Present**         | Returns to the presenter view                                                       |
 
+- **Folding**: an arrow beside the line numbers folds an environment (`\begin{…}` to `\end{…}`), a
+  section up to the next heading of its level, the preamble, or a multi-line `{…}` group such as a long
+  `\note`. A folded block shows "⋯ N lines"; the arrow or that label opens it, as does moving the
+  cursor into it. The file always keeps every line.
+- **Block guide**: a green bar beside the line numbers marks the block containing the cursor; its
+  first and last lines are highlighted.
+- **Errors and warnings**: the Problems tab counts them separately and lists errors first. Errors stop
+  the build; warnings do not. Line numbers are red for errors and orange for warnings.
 - The editor keeps the keyboard while the studio is open, so typing never triggers presenter
   shortcuts. Other text fields, such as Search, receive their own input.
 - **Cmd/Ctrl+/** comments or uncomments the current or selected lines; **Cmd/Ctrl+]** always comments

@@ -126,7 +126,8 @@ impl App {
                 }
                 ui.add_space(8.0);
 
-                let room = (ui.available_width() - 8.0 * 32.0 - 40.0).max(120.0);
+                // Room left for the tabs: the buttons on the right and the version at the end.
+                let room = (ui.available_width() - 8.0 * 32.0 - 100.0).max(120.0);
                 self.tab_strip(ui, room);
                 if sized_button(ui, Icon::Plus, false, "Go to Home", 28.0, 14.0).clicked() {
                     self.go_home();
@@ -134,6 +135,12 @@ impl App {
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 1.0;
+                    // The version, at the right end of the title row; a click opens About.
+                    let version = Label::new(RichText::new(format!("v{}", crate::update::VERSION)).size(12.5).color(MUTED)).sense(Sense::click());
+                    if ui.add(version).on_hover_cursor(CursorIcon::PointingHand).on_hover_text("About this version").clicked() {
+                        self.about_open = true;
+                    }
+                    ui.add_space(6.0);
                     self.help_menu(ui);
                     let settings = self.left == Some(LeftTab::Settings);
                     self.act(ui, Icon::Gear, settings, Action::Settings);

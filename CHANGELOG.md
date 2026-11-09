@@ -2,6 +2,18 @@
 
 All notable changes to TeXora. The newest version is first.
 
+## 1.5.2
+
+### New
+
+- **Code folding in the LaTeX studio.** An arrow beside the line numbers folds a block to its first line: an environment (`\begin{…}` to `\end{…}`), a section up to the next heading of its level, the preamble, or a `{…}` group over several lines such as a long `\note`. A folded block shows how many lines it holds; click the arrow or that label to open it. Moving the cursor or jumping to a line inside a folded block opens it. Folding only changes the view; the file keeps every line.
+- **Block guide.** A green bar beside the line numbers marks the block the cursor is in, and its first and last lines are highlighted, so the matching `\begin` and `\end` are easy to see.
+
+### Changed
+
+- **The version is shown** at the right end of the top row (for example `v1.5.2`; a click opens About) and in the window title.
+- **Errors and warnings are told apart.** The Problems tab says "Problems: 8 warnings" or "Problems: 1 error, 8 warnings", and lists errors first, then warnings, each under its own heading and with an Error or Warning label. Warnings do not stop the build; errors do. A successful build says "no errors, 8 warnings", and lines with a warning have orange numbers in the editor (errors red).
+
 ## 1.5.1
 
 ### Fixed

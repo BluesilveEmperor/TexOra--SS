@@ -2,6 +2,19 @@
 
 All notable changes to TeXora. The newest version is first.
 
+## 1.5.3
+
+### Fixed
+
+- **Custom Beamer classes.** Frames written as `\frame{…}` or with a frame environment of their own (defined in the file, or in a class or theme file beside it) now get their notes, titles, folding and slide-to-source links. Before, only `\begin{frame}` was read, so such a deck could show a note on the wrong slide.
+- **`\againframe`** is understood: the repeated slide shows the note of the frame it repeats, and a note written on it goes into that frame. Before, every note after an `\againframe` moved one slide, and a note written there could go into the next frame.
+- When the source's frames cannot be matched to the slides one for one (frames in separate files or made by a macro), notes from the source are not used and edited notes go into the `.note.md` file, so no note lands on the wrong slide. The notes panel says why.
+- The top row says "notes found" for notes written as `\note{}` in the source too.
+
+### Changed
+
+- The README shows one animated tour of TeXora instead of separate screenshots, a short demo of a video, a GIF and `animate` animations playing inside slides, and explains custom classes and themes.
+
 ## 1.5.2
 
 ### New

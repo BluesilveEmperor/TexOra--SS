@@ -368,11 +368,130 @@ pub fn md_to_latex(md: &str) -> String {
     out
 }
 
+/// Environments that make a Beamer frame: `frame`, and any environment defined (in the source, or in
+/// a `.sty` or `.cls` file beside it, such as a custom theme or class) around `\begin{frame}`,
+/// for example `\newenvironment<>{slide}[1]{\begin{frame}[environment=slide]{#1}}{\end{frame}}`.
+pub fn frame_envs(src: &str, dir: Option<&Path>) -> Vec<String> {
+    let mut defs = src.to_string();
+    if let Some(entries) = dir.and_then(|d| std::fs::read_dir(d).ok()) {
+        for e in entries.flatten().take(400) {
+            let p = e.path();
+            let local = p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sty") || x.eq_ignore_ascii_case("cls"));
+            if local && e.metadata().is_ok_and(|m| m.len() < 1_000_000) {
+                if let Ok(t) = std::fs::read_to_string(&p) {
+                    defs.push('\n');
+                    defs.push_str(&t);
+                }
+            }
+        }
+    }
+    let clean: String = defs.lines().map(strip_comment).collect::<Vec<_>>().join("\n");
+    let mut names = vec!["frame".to_string()];
+    for kw in ["\\newenvironment", "\\renewenvironment", "\\NewDocumentEnvironment", "\\RenewDocumentEnvironment", "\\DeclareDocumentEnvironment", "\\ProvideDocumentEnvironment"] {
+        let mut pos = 0;
+        while let Some(p) = clean[pos..].find(kw) {
+            let at = pos + p + kw.len();
+            pos = at;
+            let rest = clean[at..].trim_start_matches(['*', ' ']);
+            let rest = rest.strip_prefix("<>").unwrap_or(rest).trim_start();
+            let Some((name, _)) = rest.strip_prefix('{').and_then(|r| r.split_once('}')) else { continue };
+            let name = name.trim();
+            if name.is_empty() || name == "frame" || !name.chars().all(|c| c.is_alphanumeric() || "*-_:".contains(c)) {
+                continue;
+            }
+            // The definition: up to the next definition, and not much further.
+            let tail = &clean[at..];
+            let mut cut = tail.char_indices().nth(800).map(|(k, _)| k).unwrap_or(tail.len());
+            if let Some(next) = tail[1..cut].find("environment") {
+                cut = cut.min(next + 1);
+            }
+            if tail[..cut].contains("\\begin{frame}") && !names.iter().any(|n| n == name) {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names
+}
+
+/// One frame of the source, as found by `frame_spans`.
+#[derive(Clone, Debug)]
+struct Span {
+    /// Where the command starts, where its body starts and where the body ends.
+    start: usize,
+    body: usize,
+    end: usize,
+    /// Its `label=` option, which `\againframe` refers to.
+    label: Option<String>,
+    /// For `\againframe{label}`: the frame it shows again (an index into the list).
+    again: Option<usize>,
+}
+
+/// The value of `label=` in a frame's options, if it has one.
+fn frame_label(opts: &str) -> Option<String> {
+    let at = opts.find("label=")? + "label=".len();
+    let v: String = opts[at..].chars().take_while(|c| !matches!(c, ',' | ']' | '}')).collect();
+    Some(v.trim().to_string()).filter(|v| !v.is_empty())
+}
+
+/// Every frame in comment-free source, in reading order: `\begin{…}` … `\end{…}` of a frame
+/// environment (`envs`), `\frame{…}`, and `\againframe{label}`, which shows a labelled frame again
+/// and so is a slide of its own in the PDF. Only the document body counts, so a definition in the
+/// preamble is not taken for a frame.
+fn frame_spans(clean: &str, envs: &[String]) -> Vec<Span> {
+    let b = clean.as_bytes();
+    let mut out: Vec<Span> = vec![];
+    let mut i = clean.find("\\begin{document}").map(|p| p + "\\begin{document}".len()).unwrap_or(0);
+    while i < b.len() {
+        if b[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        let rest = &clean[i..];
+        if let Some((name, _)) = rest.strip_prefix("\\begin{").and_then(|r| r.split_once('}')) {
+            if envs.iter().any(|e| e == name) {
+                let after = i + "\\begin{".len() + name.len() + 1;
+                let close = format!("\\end{{{name}}}");
+                let end = clean[after..].find(&close).map(|e| after + e).unwrap_or(clean.len());
+                let label = frame_label(&clean[after..skip_opts(clean, after).min(end)]);
+                out.push(Span { start: i, body: after, end, label, again: None });
+                i = end.max(after);
+                continue;
+            }
+        } else if rest.starts_with("\\frame") && !rest[6..].starts_with(|c: char| c.is_ascii_alphabetic()) {
+            // The command form: \frame<…>[…]{…}.
+            let o = skip_opts(clean, i + 6);
+            if let Some((_, e)) = braced(clean, o) {
+                let label = frame_label(&clean[i + 6..o]);
+                out.push(Span { start: i, body: o + 1, end: e - 1, label, again: None });
+                i = e;
+                continue;
+            }
+        } else if rest.starts_with("\\againframe") && !rest[11..].starts_with(|c: char| c.is_ascii_alphabetic()) {
+            let o = skip_opts(clean, i + 11);
+            if let Some((name, e)) = braced(clean, o) {
+                let again = out.iter().position(|f| f.label.as_deref() == Some(name.trim()));
+                out.push(Span { start: i, body: e, end: e, label: None, again });
+                i = e;
+                continue;
+            }
+        }
+        // A backslash and the character after it go together (\\, \%, \{).
+        i += if rest.len() > 1 && !rest.as_bytes()[1].is_ascii_alphabetic() { 2 } else { 1 };
+    }
+    out
+}
+
 /// Puts `note` (LaTeX) as the `\note{...}` of frame number `frame` (from 0) in the source, and returns
 /// the new source. An existing `\note` is replaced (more than one become one); a frame without one
 /// gets it just before its `\end{frame}`; an empty `note` removes the frame's notes. `None` when the
 /// frame is not there.
+#[cfg(test)]
 pub fn set_frame_note(src: &str, frame: usize, note: &str) -> Option<String> {
+    set_frame_note_with(src, frame, note, &frame_envs(src, None))
+}
+
+/// `set_frame_note`, with the frame environments already known (see `frame_envs`).
+pub fn set_frame_note_with(src: &str, frame: usize, note: &str, envs: &[String]) -> Option<String> {
     let lines: Vec<&str> = src.split('\n').collect();
     let clean: String = lines.iter().map(|l| strip_comment(l)).collect::<Vec<_>>().join("\n");
     // Comments only ever end a line, so a position keeps its line and column in the original text.
@@ -391,17 +510,18 @@ pub fn set_frame_note(src: &str, frame: usize, note: &str) -> Option<String> {
         let line = clean_starts.partition_point(|s| *s <= p) - 1;
         starts[line] + (p - clean_starts[line])
     };
-    let (mut pos, mut n) = (0, 0);
-    let (after, end) = loop {
-        let start = pos + clean[pos..].find("\\begin{frame}")?;
-        let after = start + "\\begin{frame}".len();
-        let end = after + clean[after..].find("\\end{frame}")?;
-        if n == frame {
-            break (after, end);
-        }
-        n += 1;
-        pos = end;
+    let spans = frame_spans(&clean, envs);
+    // A note for a slide shown again with \againframe belongs to the frame it repeats.
+    let span = spans.get(frame)?;
+    let span = match span.again {
+        Some(k) => spans.get(k)?,
+        None if span.body == span.end => return None,
+        None => span,
     };
+    let (after, end) = (span.body, span.end);
+    if end >= clean.len() {
+        return None;
+    }
     // Every \note in the frame: (where the command starts, where its braces start, where they end).
     let mut spans = vec![];
     let mut np = after;
@@ -456,14 +576,23 @@ pub fn set_frame_note(src: &str, frame: usize, note: &str) -> Option<String> {
 
 /// One entry per `\begin{frame}` in reading order: where it is, its title and its `\note`s.
 pub fn parse_tex_frames(src: &str) -> Vec<TexFrame> {
+    parse_tex_frames_with(src, &frame_envs(src, None))
+}
+
+/// `parse_tex_frames`, with the frame environments already known (see `frame_envs`).
+pub fn parse_tex_frames_with(src: &str, envs: &[String]) -> Vec<TexFrame> {
     let clean: String = src.lines().map(strip_comment).collect::<Vec<_>>().join("\n");
     let line_at = |pos: usize| clean[..pos].matches('\n').count() + 1;
     let mut frames = vec![];
-    let mut pos = 0;
-    while let Some(p) = clean[pos..].find("\\begin{frame}") {
-        let start = pos + p;
-        let after = start + "\\begin{frame}".len();
-        let end = clean[after..].find("\\end{frame}").map(|e| after + e).unwrap_or(clean.len());
+    for span in frame_spans(&clean, envs) {
+        let (start, after, end) = (span.start, span.body, span.end);
+        // \againframe repeats a frame: same title and notes, at the \againframe line.
+        if let Some(k) = span.again {
+            let mut f: TexFrame = frames.get(k).cloned().unwrap_or_default();
+            (f.line, f.end_line) = (line_at(start), line_at(end));
+            frames.push(f);
+            continue;
+        }
         let body = &clean[start..end];
         let mut f = TexFrame { line: line_at(start), end_line: line_at(end), ..Default::default() };
         if let Some((t, _)) = braced(&clean, skip_opts(&clean, after)) {
@@ -488,7 +617,6 @@ pub fn parse_tex_frames(src: &str) -> Vec<TexFrame> {
             }
         }
         frames.push(f);
-        pos = end.max(after);
     }
     frames
 }
@@ -498,6 +626,79 @@ mod tests {
     use super::*;
 
     const DECK: &str = "\\begin{document}\n\\begin{frame}{One}\n  Hello % a comment {\n  \\note{Old note}\n\\end{frame}\n\n\\begin{frame}{Two}\n  World\n\\end{frame}\n\\end{document}\n";
+
+    /// A deck with a custom Beamer class, a frame environment of its own (defined in the source), and
+    /// the command form \frame{…}.
+    const CUSTOM: &str = "\\documentclass{acmedeck}\n\
+\\newenvironment<>{acmeslide}[1]{\\begin{frame}[environment=acmeslide]{#1}}{\\end{frame}}\n\
+\\begin{document}\n\
+\\begin{frame}{One}\n\
+  A \\note{Note one}\n\
+\\end{frame}\n\
+\\frame{\\frametitle{Two} B \\note{Note two}}\n\
+\\begin{acmeslide}{Three}\n\
+  C \\note{Note three}\n\
+\\end{acmeslide}\n\
+\\frame<1-2>[label=four]{\n\
+  \\frametitle{Four} D\n\
+}\n\
+\\frametitle{not a frame} \\framezoom<1>{2}(0cm,0cm)(1cm,1cm)\n\
+\\end{document}\n";
+
+    #[test]
+    fn frames_of_any_beamer_form_are_found() {
+        assert_eq!(frame_envs(CUSTOM, None), vec!["frame".to_string(), "acmeslide".to_string()]);
+        let f = parse_tex_frames(CUSTOM);
+        let got: Vec<(&str, &str, usize)> = f.iter().map(|x| (x.title.as_str(), x.note.as_str(), x.line)).collect();
+        assert_eq!(got, vec![("One", "Note one", 4), ("Two", "Note two", 7), ("Three", "Note three", 8), ("Four", "", 11)], "the definition in the preamble is not a frame");
+        assert_eq!(f[2].end_line, 10);
+        assert_eq!(f[3].end_line, 13);
+    }
+
+    #[test]
+    fn notes_go_into_the_right_frame_of_any_form() {
+        let envs = frame_envs(CUSTOM, None);
+        let s = set_frame_note_with(CUSTOM, 1, "New two", &envs).unwrap();
+        assert!(s.contains("\\frame{\\frametitle{Two} B \\note{New two}}"), "{s}");
+        let s = set_frame_note_with(CUSTOM, 2, "New three", &envs).unwrap();
+        assert!(s.contains("C \\note{New three}\n\\end{acmeslide}"), "{s}");
+        let s = set_frame_note_with(CUSTOM, 3, "Added", &envs).unwrap();
+        assert_eq!(parse_tex_frames_with(&s, &envs)[3].note, "Added", "{s}");
+        assert!(set_frame_note_with(CUSTOM, 4, "x", &envs).is_none(), "there is no fifth frame");
+    }
+
+    #[test]
+    fn a_frame_shown_again_keeps_its_notes() {
+        let src = "\\documentclass{beamer}\n\\begin{document}\n\
+\\begin{frame}[label=goals]{Goals}\n\\note{Goals note}\n\\end{frame}\n\
+\\frame[label=res]{\\frametitle{Results}\\note{Results note}}\n\
+\\againframe<2>[t]{goals}\n\
+\\begin{frame}{After}\n\\note{After note}\n\\end{frame}\n\
+\\againframe{res}\n\
+\\end{document}\n";
+        let f = parse_tex_frames(src);
+        let got: Vec<(&str, &str, usize)> = f.iter().map(|x| (x.title.as_str(), x.note.as_str(), x.line)).collect();
+        assert_eq!(got, vec![("Goals", "Goals note", 3), ("Results", "Results note", 6), ("Goals", "Goals note", 7), ("After", "After note", 8), ("Results", "Results note", 11)], "five slides, one per entry, in order");
+        // A note written on a repeated slide goes into the frame it repeats.
+        let s = set_frame_note(src, 2, "New goals").unwrap();
+        assert!(s.contains("[label=goals]{Goals}\n\\note{New goals}"), "{s}");
+        assert_eq!(parse_tex_frames(&s)[2].note, "New goals", "and shows on both slides");
+        let s = set_frame_note(src, 4, "New results").unwrap();
+        assert!(s.contains("\\frametitle{Results}\\note{New results}}"), "{s}");
+    }
+
+    #[test]
+    fn a_frame_environment_from_a_local_theme_counts() {
+        let dir = std::env::temp_dir().join(format!("texora-theme-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("beamerthemeAcme.sty"), "\\mode<presentation>\n\\NewDocumentEnvironment{customframe}{m}{\\begin{frame}[environment=customframe]{#1}}{\\end{frame}}\n\\mode<all>\n").unwrap();
+        let src = "\\documentclass{beamer}\n\\usetheme{Acme}\n\\begin{document}\n\\begin{customframe}{Hi}\n\\note{N}\n\\end{customframe}\n\\end{document}\n";
+        assert_eq!(parse_tex_frames(src).len(), 0, "without the theme's folder it is unknown");
+        let envs = frame_envs(src, Some(&dir));
+        assert!(envs.contains(&"customframe".to_string()), "{envs:?}");
+        let f = parse_tex_frames_with(src, &envs);
+        assert_eq!((f.len(), f[0].title.as_str(), f[0].note.as_str()), (1, "Hi", "N"));
+    }
 
     #[test]
     fn notes_written_in_the_presenter_go_into_the_frame() {

@@ -1,6 +1,6 @@
 [package]
 name = "texora"
-version = "1.5.2"
+version = "1.5.3"
 edition = "2021"
 description = "TeXora: a LaTeX-native presenter for Beamer and PDF slides"
 license = "PolyForm-Noncommercial-1.0.0"

@@ -102,6 +102,8 @@ pub struct Source {
     pub goto_line: Option<usize>,
     /// First lines of the folded blocks in the studio's editor.
     pub folded: std::collections::BTreeSet<usize>,
+    /// Environments that make a frame here: `frame`, and any a local class or theme defines around it.
+    pub frame_envs: Vec<String>,
 }
 
 /// Where one animation is: the frame on show, whether it plays, which way, and when the next frame is due.
@@ -205,6 +207,10 @@ pub struct App {
     pub cli_copied: Option<String>,
     /// In a test run, what the editor put on the clipboard (kept off the real clipboard).
     pub test_clip: Option<String>,
+    /// A test script's `s:` step asks for a numbered screenshot without ending the run, to record a
+    /// sequence (for example a demo of a video playing).
+    pub snap_pending: bool,
+    pub snap_count: u32,
     pub update_open: bool,
     pub update_rx: Option<Receiver<crate::update::Outcome>>,
     pub update_result: Option<crate::update::Outcome>,
@@ -398,6 +404,8 @@ impl App {
             syscheck_open: false,
             cli_copied: None,
             test_clip: None,
+            snap_pending: false,
+            snap_count: 0,
             update_open: false,
             update_rx: None,
             update_result: None,
@@ -593,7 +601,8 @@ impl App {
         if !bak.exists() {
             let _ = std::fs::copy(path, &bak);
         }
-        let frames = notes::parse_tex_frames(&text);
+        let frame_envs = notes::frame_envs(&text, path.parent());
+        let frames = notes::parse_tex_frames_with(&text, &frame_envs);
         Some(Source {
             path: path.to_path_buf(),
             text,
@@ -606,6 +615,7 @@ impl App {
             line_changed: Instant::now(),
             goto_line: None,
             folded: Default::default(),
+            frame_envs,
         })
     }
 
@@ -713,7 +723,13 @@ impl App {
     pub fn rebuild_deck(&mut self) {
         let Some(doc) = &self.doc else { return };
         let nav = deck::read_nav(&doc.path);
-        let titles: Vec<String> = self.src.as_ref().map(|s| s.frames.iter().map(|f| f.title.clone()).collect()).unwrap_or_default();
+        // Titles from the source only when its frames line up with the PDF's (see `source_lines_up`).
+        let titles: Vec<String> = self
+            .src
+            .as_ref()
+            .filter(|s| nav.frame_pages.is_empty() || s.frames.len() == nav.frame_pages.len())
+            .map(|s| s.frames.iter().map(|f| f.title.clone()).collect())
+            .unwrap_or_default();
         self.deck = deck::build(doc, self.side.notes_mode, &nav, &titles);
     }
 
@@ -753,7 +769,10 @@ impl App {
         // A presentation made from LaTeX keeps its notes in the source, as \note{...} in each frame, so
         // the presenter and the LaTeX studio always show the same notes. The source is saved and rebuilt.
         // With "save in the .tex file" off, it goes into the .note.md file instead, as for a PDF.
-        let new_src = if self.st.notes_in_tex { self.src.as_ref().and_then(|s| notes::set_frame_note(&s.text, f, &notes::md_to_latex(&text))) } else { None };
+        // Only when the source's frames line up with the slides; otherwise the note could go into
+        // another frame, so it goes into the .note.md file.
+        let in_tex = self.st.notes_in_tex && self.source_lines_up();
+        let new_src = if in_tex { self.src.as_ref().and_then(|s| notes::set_frame_note_with(&s.text, f, &notes::md_to_latex(&text), &s.frame_envs)) } else { None };
         if let (Some(new), Some(s)) = (new_src, self.src.as_mut()) {
             s.text = new;
             s.dirty = true;
@@ -800,7 +819,8 @@ impl App {
                 Ok(_) => {
                     s.dirty = false;
                     s.disk_mtime = latex::mtime(&s.path);
-                    let before = std::mem::replace(&mut s.frames, notes::parse_tex_frames(&s.text));
+                    s.frame_envs = notes::frame_envs(&s.text, s.path.parent());
+                    let before = std::mem::replace(&mut s.frames, notes::parse_tex_frames_with(&s.text, &s.frame_envs));
                     self.source_notes_changed(&before);
                 }
                 Err(e) => self.status = format!("Could not save: {e}"),
@@ -1043,7 +1063,8 @@ impl App {
             if m.is_some() && m != s.disk_mtime && !s.dirty {
                 s.disk_mtime = m;
                 if let Some(t) = notes::read_text(&s.path) {
-                    changed_frames = Some(std::mem::replace(&mut s.frames, notes::parse_tex_frames(&t)));
+                    s.frame_envs = notes::frame_envs(&t, s.path.parent());
+                    changed_frames = Some(std::mem::replace(&mut s.frames, notes::parse_tex_frames_with(&t, &s.frame_envs)));
                     s.text = t;
                 }
                 rebuild = auto;
@@ -1284,9 +1305,16 @@ impl App {
         self.session = Session { started_unix: now_unix(), ..Default::default() };
     }
 
+    /// Whether the frames found in the source are the PDF's frames, one for one. They may not be when
+    /// frames come from `\input` files, from a macro, or from `\againframe`; then nothing is matched by
+    /// position, so no note or title lands on the wrong slide.
+    pub fn source_lines_up(&self) -> bool {
+        self.src.as_ref().is_some_and(|s| self.deck.frames.is_empty() || s.frames.len() == self.deck.frames.len())
+    }
+
     fn sync_editor_to_slide(&mut self) {
         // Keep the source in view while moving through slides in the studio.
-        if self.view != View::Studio {
+        if self.view != View::Studio || !self.source_lines_up() {
             return;
         }
         let f = self.frame();
@@ -1359,7 +1387,7 @@ impl App {
                 return;
             }
         }
-        if let Some(fr) = frame_at.and_then(|f| self.deck.frames.get(f)) {
+        if let Some(fr) = frame_at.filter(|_| self.source_lines_up()).and_then(|f| self.deck.frames.get(f)) {
             self.cur = fr.first;
         }
     }
@@ -1879,7 +1907,7 @@ impl App {
             .get(&frame)
             .filter(|n| !n.trim().is_empty())
             .cloned()
-            .or_else(|| self.src.as_ref().and_then(|s| s.frames.get(frame)).map(|f| f.note.clone()).filter(|n| !n.is_empty()))
+            .or_else(|| self.src.as_ref().filter(|_| self.source_lines_up()).and_then(|s| s.frames.get(frame)).map(|f| f.note.clone()).filter(|n| !n.is_empty()))
     }
 
     // ---------- screenshot option ----------
@@ -1898,6 +1926,22 @@ impl App {
         });
         self.frames_drawn += 1;
         ctx.request_repaint();
+        if std::mem::take(&mut self.snap_pending) {
+            // <name>-0001.png, <name>-0002.png… beside the final screenshot; written on another thread
+            // so the app keeps its pace while recording.
+            self.snap_count += 1;
+            let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let file = path.with_file_name(format!("{stem}-{:04}.png", self.snap_count));
+            ctx.request_screenshot(move |img| {
+                let [w, h] = img.size;
+                let bytes: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_array()).collect();
+                std::thread::spawn(move || {
+                    if let Some(png) = pdf::encode_png(w as u32, h as u32, &bytes) {
+                        let _ = std::fs::write(&file, png);
+                    }
+                });
+            });
+        }
         let settled = self.src.as_ref().map(|s| !s.dirty).unwrap_or(true);
         let on_start = self.view == View::Start;
         let ready = (self.doc.is_some() || on_start) && self.pending.is_empty() && !self.compiling && self.script.is_empty() && settled && self.script_until.map(|t| Instant::now() >= t).unwrap_or(true);
@@ -1979,6 +2023,7 @@ impl App {
                     }
                 }
             }
+            "s" => self.snap_pending = true,
             "c" => raw.events.push(egui::Event::Copy),
             "x" => raw.events.push(egui::Event::Cut),
             "p" => raw.events.push(egui::Event::Paste(arg.replace("\\n", "\n"))),

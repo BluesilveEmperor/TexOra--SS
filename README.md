@@ -19,8 +19,10 @@
   <a href="#building-from-source">Build</a>
 </p>
 
+
 <p align="center">
-  <img src="screenshots/tour.gif" alt="A tour of TeXora: Home, presenter view, large slide, LaTeX studio with folding, analytics, contents, settings, drawing on a slide and the audience window" width="860">
+  <img src="screenshots/tour.gif" alt="A tour of TeXora: Home, presenter view, large slide, LaTeX studio with folding, analytics, contents, settings, drawing on a slide and the audience window" width="400">
+  <img src="screenshots/media-demo.gif" alt="An MP4 video and an animated GIF playing inside a slide, then two animations made with the LaTeX animate package" width="400">
 </p>
 
 TeXora shows the speaker the notes, the current and next slide and the time, while the audience sees

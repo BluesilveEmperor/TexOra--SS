@@ -20,44 +20,12 @@
 </p>
 
 <p align="center">
-  <img src="screenshots/large-slide.png" alt="Large slide view: the slide with drawing tools, speaker notes, next slide, sections bar and timer" width="760">
+  <img src="screenshots/tour.gif" alt="A tour of TeXora: Home, presenter view, large slide, LaTeX studio with folding, analytics, contents, settings, drawing on a slide and the audience window" width="860">
 </p>
 
 TeXora shows the speaker the notes, the current and next slide and the time, while the audience sees
 only the slide. It opens PDF files and LaTeX Beamer sources; a `.tex` file is compiled on opening and
 can be edited in the built-in LaTeX studio or in any other editor.
-
-## Screenshots
-
-<table>
-  <tr>
-    <td align="center"><img src="screenshots/presenter.png" alt="Presenter view" width="400"><br><sub>Presenter view</sub></td>
-    <td align="center"><img src="screenshots/studio.png" alt="LaTeX studio" width="400"><br><sub>LaTeX studio</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="screenshots/split.png" alt="Slide and notes split view" width="400"><br><sub>Slide and notes, side by side</sub></td>
-    <td align="center"><img src="screenshots/overview.png" alt="Slide overview" width="400"><br><sub>Slide overview</sub></td>
-  </tr>
-</table>
-
-<details>
-<summary><b>More screenshots</b></summary>
-<br>
-<table>
-  <tr>
-    <td align="center"><img src="screenshots/home.png" alt="Home page with recent files" width="400"><br><sub>Home</sub></td>
-    <td align="center"><img src="screenshots/audience.png" alt="Audience window" width="400"><br><sub>Audience window</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="screenshots/notes-edit.png" alt="Editing speaker notes" width="400"><br><sub>Editing notes</sub></td>
-    <td align="center"><img src="screenshots/contents.png" alt="Contents sidebar" width="400"><br><sub>Contents and bookmarks</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="screenshots/analytics.png" alt="Rehearsal analytics" width="400"><br><sub>Analytics</sub></td>
-    <td align="center"><img src="screenshots/settings.png" alt="Settings sidebar" width="400"><br><sub>Settings</sub></td>
-  </tr>
-</table>
-</details>
 
 ## Features
 
@@ -69,7 +37,7 @@ can be edited in the built-in LaTeX studio or in any other editor.
 | **LaTeX Beamer**         | Compiles with pdfLaTeX, XeLaTeX or LuaLaTeX, chosen from `% !TEX program` or the packages used. Rebuilds when the file is saved in any editor. |
 | **Required packages**    | Lists every package, theme and program a file needs, with how to install the missing ones.                                                     |
 | **Speaker notes**        | From Beamer notes pages, `\note{}`, `.pdfpc` files or a Markdown file; editable in the app, in any language.                                   |
-| **Animations and video** | `animate` package animations, GIFs and video clips play inside the slide; video uses an installed ffmpeg or VLC.                               |
+| **Animations and video** | `animate` package animations, GIFs and video clips play inside the slide ([see it](#animations)); video uses an installed ffmpeg or VLC. |
 | **Drawing and pointing** | Pen, highlighter, eraser, laser pointer and zoom to an area. Ink is kept per slide.                                                            |
 | **Navigation**           | Contents, bookmarks, question marks and full-text search in a sidebar. Tabs for several presentations.                                         |
 | **Analytics**            | Time on each slide for every rehearsal, compared with the previous one.                                                                        |
@@ -177,7 +145,6 @@ sees) and the next slide. The timer, slide number and sections bar run along the
 <details>
 <summary>Areas of the presenter screen</summary>
 <br>
-<p align="center"><img src="screenshots/presenter.png" alt="Presenter screen" width="640"></p>
 
 | Area                  | Content                                                                                                                                                        |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -309,7 +276,30 @@ presentation. **Edit notes** (**E**) edits them in place; **Cmd/Ctrl+Enter** sav
   right to left while typing and when shown. Notes are saved as UTF-8; UTF-16 and older encodings are
   read.
 
-<p align="center"><img src="screenshots/notes-edit.png" alt="Editing the notes of a slide" width="640"></p>
+</details>
+
+### Custom classes and themes
+
+Any Beamer presentation works, including custom Beamer classes and themes. LaTeX
+builds the slides, so every theme, colour scheme, template and package behaves as in any other editor;
+TeXora reads the frames from Beamer's own `.nav` file.
+
+<details>
+<summary>What is supported, and the limits</summary>
+<br>
+
+- **Own class or theme files**: `\documentclass{acmedeck}` or `\usetheme{Acme}` with `acmedeck.cls` or
+  `beamerthemeAcme.sty` in the presentation's folder. The package check counts them as found.
+- **Every frame form**: `\begin{frame}…\end{frame}`, the command form `\frame{…}`, and frame
+  environments defined around a frame, in the file or in a local `.sty`/`.cls`, for example
+  `\newenvironment{customframe}[1]{\begin{frame}[environment=customframe]{#1}}{\end{frame}}`.
+  Their `\note{…}`, titles, overlays, folding and slide-to-source links all work.
+- **`\againframe{label}`** counts as a slide of its own: it shows the note of the frame it repeats, and
+  a note written there goes into that frame.
+- **Limits**: frames kept in separate files (`\input`, `\include`) or made by a macro cannot be
+  matched to the source one for one. TeXora still presents everything (slides, overlays, PDF notes
+  pages and `.note.md` notes), but does not read `\note{…}` from the source and saves edited notes in
+  the `.note.md` file, so no note lands on the wrong slide.
 </details>
 
 ### LaTeX studio
@@ -317,8 +307,6 @@ presentation. **Edit notes** (**E**) edits them in place; **Cmd/Ctrl+Enter** sav
 **View > LaTeX studio** (**Cmd/Ctrl+E**) shows the source on the left, the slide and its notes on the
 right, and compile messages at the bottom. Typing never saves or rebuilds by itself: **Compile**
 (**Cmd/Ctrl+B**) builds the slides, and **Save** (**Cmd/Ctrl+S**) rebuilds when **Rebuild on save** is on.
-
-<p align="center"><img src="screenshots/studio.png" alt="LaTeX studio: source editor, slide preview with notes, and the problems panel" width="640"></p>
 
 <details>
 <summary>Studio controls and editing</summary>
@@ -359,6 +347,11 @@ right, and compile messages at the bottom. Typing never saves or rebuilds by its
 </details>
 
 ### Animations
+
+<p align="center">
+  <img src="screenshots/media-demo.gif" alt="An MP4 video and an animated GIF playing inside a slide, then two animations made with the LaTeX animate package" width="760"><br>
+  <sub>An MP4 video and a GIF playing inside the slide, then two <code>animate</code> package animations.</sub>
+</p>
 
 Animations made with the LaTeX `animate` package (`animateinline` or `\animategraphics`) play on the
 slide. Click to play or pause; in the presenter view a bar under the animation steps through frames.

@@ -722,7 +722,8 @@ impl App {
             ("Audience window is live".to_string(), good, Some(Icon::Check))
         } else {
             let n = self.displays.len().max(1);
-            let notes = !self.notes.is_empty() || self.deck.slides.iter().any(|x| x.notes.is_some());
+            // Notes of any kind: PDF notes pages, the .note.md file, or \note{} in the source.
+            let notes = self.deck.slides.iter().any(|x| x.notes.is_some()) || (0..self.deck.frames.len()).any(|f| self.note_for(f).is_some());
             let parts = format!(
                 "{n} display{}, {}, {}",
                 if n == 1 { "" } else { "s" },
@@ -1016,10 +1017,16 @@ impl App {
                 child.set_clip_rect(inner.intersect(ui.clip_rect()));
                 let mut write = false;
                 let size = (self.st.notes_size * s).max(11.0);
+                // The source has \note{} commands, but its frames cannot be matched to the slides.
+                let unmatched = !self.source_lines_up() && self.src.as_ref().is_some_and(|x| x.frames.iter().any(|f| !f.note.is_empty()));
                 let out = ScrollArea::vertical().id_salt("notes-text").auto_shrink([false, false]).show(&mut child, |ui| match &text {
                     Some(t) => markdown(ui, t, size),
                     None => {
                         ui.label(RichText::new("No notes on this slide yet.").size((20.0 * s).max(11.0)).color(MUTED));
+                        if unmatched {
+                            let why = "The .tex file has \\note{} commands, but its frames cannot be matched to these slides one for one (some frames are in separate files or made by a macro), so they are not shown here. Notes written here are saved in the .note.md file.";
+                            ui.label(RichText::new(why).size((13.0 * s).max(10.5)).color(MUTED));
+                        }
                         write = ui.button("Write notes").clicked();
                     }
                 });

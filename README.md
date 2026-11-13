@@ -19,6 +19,23 @@
   <a href="#building-from-source">Build</a>
 </p>
 
+> **This repository is a fork, maintained separately.** TeXora was written by
+> [Khalid Alkhaldi](https://github.com/khalidt/TeXora); the original project, its releases and its
+> author stay at [khalidt/TeXora](https://github.com/khalidt/TeXora). This fork is kept by
+> [BluesilveEmperor](https://github.com/BluesilveEmperor) and publishes its own version line, which
+> starts at 1.0.0.
+>
+> What this fork changes so far:
+>
+> - **A Chinese interface.** The whole program — menus, panels, the presenter screen, the LaTeX
+>   studio, the command-line help and the built-in guide — can be read in Simplified Chinese.
+>   Choose it in **Settings > Language**; the change is instant and is remembered. English stays the
+>   language of the source, so an English install is unchanged.
+>   界面已适配简体中文：在「设置 > 语言」里切换，整个程序连同内置指南都会变成中文。
+> - **A fix for the Video Guide template on Windows.** TeX's path search does not understand the
+>   `\\?\` prefix Windows adds to an absolute path, so TeXora's own `texoravideo` package was not
+>   found and the template could not be compiled.
+
 
 <p align="center">
   <img src="screenshots/tour.gif" alt="A tour of TeXora: Home, presenter view, large slide, LaTeX studio with folding, analytics, contents, settings, drawing on a slide and the audience window" width="400">

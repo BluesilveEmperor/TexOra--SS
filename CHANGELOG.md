@@ -4,6 +4,9 @@ All notable changes to TeXora. The newest version is first.
 
 ## 1.0.0
 
+The first release of this fork, which is maintained separately from the original project at
+[khalidt/TeXora](https://github.com/khalidt/TeXora). The version numbers start again at 1.0.0.
+
 ### New
 
 - **A language of your own: Simplified Chinese.** The whole interface — menus, panels, buttons, the

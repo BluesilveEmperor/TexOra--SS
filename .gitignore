@@ -5,3 +5,4 @@ dist/
 vendor/
 backup/
 .DS_Store
+.workbuddy/

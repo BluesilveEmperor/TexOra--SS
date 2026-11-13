@@ -67,8 +67,18 @@ fn main() {
         }
     }
     let lib = find_lib(&dir, name).unwrap();
-    // OUT_DIR = target/<profile>/build/texora-xxx/out
-    if let Some(profile_dir) = PathBuf::from(env::var("OUT_DIR").unwrap()).ancestors().nth(3) {
-        let _ = fs::copy(&lib, profile_dir.join(name));
+    // OUT_DIR is target/<profile>/build/<pkg>/<hash>/out in current cargo, and
+    // target/<profile>/build/<pkg>-<hash>/out in older ones. The folder the program is built in
+    // is the one above "build", whichever layout is in use; counting the levels would put the
+    // library in the wrong place, and the package would then have no PDF engine.
+    let out = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let profile_dir = out.ancestors().find(|p| p.file_name().is_some_and(|n| n == "build")).and_then(|p| p.parent());
+    match profile_dir {
+        Some(dir) => {
+            if let Err(e) = fs::copy(&lib, dir.join(name)) {
+                println!("cargo:warning=PDF engine could not be copied next to the program: {e}");
+            }
+        }
+        None => println!("cargo:warning=PDF engine could not be copied next to the program: the build folder was not found."),
     }
 }

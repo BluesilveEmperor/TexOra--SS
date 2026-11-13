@@ -2,6 +2,7 @@ target
 .toolchain
 shots/
 dist/
+stage/
 vendor/
 backup/
 .DS_Store

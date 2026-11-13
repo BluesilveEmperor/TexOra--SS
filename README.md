@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/khalidt/TeXora/releases/latest"><b>Download</b></a> ·
+  <a href="https://github.com/BluesilveEmperor/TexOra--SS/releases/latest"><b>Download</b></a> ·
   <a href="#features">Features</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#guide">Guide</a> ·
@@ -48,7 +48,7 @@ can be edited in the built-in LaTeX studio or in any other editor.
 
 ## Download and install
 
-Each system has an installer and a portable package in the [latest release](https://github.com/khalidt/TeXora/releases/latest).
+Each system has an installer and a portable package in the [latest release](https://github.com/BluesilveEmperor/TexOra--SS/releases/latest).
 
 | System                                 | Installer                                | Portable                              |
 | -------------------------------------- | ---------------------------------------- | ------------------------------------- |
@@ -552,7 +552,7 @@ TeXora --help            # all options
 Requires [Rust](https://rustup.rs) (stable). The PDF engine (PDFium) is downloaded on the first build.
 
 ```sh
-git clone https://github.com/khalidt/TeXora.git
+git clone https://github.com/BluesilveEmperor/TexOra--SS.git
 cd TeXora
 cargo build --release
 ./target/release/TeXora

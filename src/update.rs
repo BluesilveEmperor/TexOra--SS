@@ -6,9 +6,9 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The GitHub project TeXora is published in, as "owner/name". Until it has a published release,
 /// GitHub answers "not found" and TeXora counts as up to date.
-const GITHUB_REPO: &str = "khalidt/TeXora";
+const GITHUB_REPO: &str = "BluesilveEmperor/TexOra--SS";
 
-pub const WEBSITE: &str = "https://github.com/khalidt/TeXora";
+pub const WEBSITE: &str = "https://github.com/BluesilveEmperor/TexOra--SS";
 
 pub const DEVELOPER: &str = "Khalid Alkhaldi";
 
@@ -177,7 +177,7 @@ mod tests {
             "texora_1.0.1_arm64.deb",
         ]
         .iter()
-        .map(|n| (n.to_string(), format!("https://github.com/khalidt/TeXora/releases/download/v1.0.1/{n}")))
+        .map(|n| (n.to_string(), format!("https://github.com/BluesilveEmperor/TexOra--SS/releases/download/v1.0.1/{n}")))
         .collect()
     }
 
@@ -199,13 +199,13 @@ mod tests {
 
     #[test]
     fn github_release_from_1_0_0_to_1_0_1() {
-        // The shape GitHub's "latest release" answer has, as published for khalidt/TeXora.
+        // The shape GitHub's "latest release" answer has, as published for BluesilveEmperor/TexOra--SS.
         let assets: Vec<String> = release_files()
             .iter()
             .map(|(n, u)| format!(r#"{{"name":"{n}","browser_download_url":"{u}","size":1}}"#))
             .collect();
         let body = format!(
-            r#"{{"tag_name":"v1.0.1","name":"TeXora 1.0.1","draft":false,"prerelease":false,"html_url":"https://github.com/khalidt/TeXora/releases/tag/v1.0.1","body":"What is new","assets":[{}]}}"#,
+            r#"{{"tag_name":"v1.0.1","name":"TeXora 1.0.1","draft":false,"prerelease":false,"html_url":"https://github.com/BluesilveEmperor/TexOra--SS/releases/tag/v1.0.1","body":"What is new","assets":[{}]}}"#,
             assets.join(",")
         );
         match interpret(&body, "1.0.0") {

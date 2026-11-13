@@ -2,7 +2,7 @@
 
 All notable changes to TeXora. The newest version is first.
 
-## Unreleased
+## 1.0.0
 
 ### New
 

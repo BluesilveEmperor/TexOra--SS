@@ -102,14 +102,14 @@ MimeType=application/pdf;text/x-tex;
     control = f"""Package: texora
 Version: {VERSION}
 Architecture: {ARCH}
-Maintainer: Khalid Alkhaldi <https://github.com/khalidt/TeXora>
+Maintainer: Khalid Alkhaldi <https://github.com/BluesilveEmperor/TexOra--SS>
 Installed-Size: {size_kb}
 Depends: libc6 (>= 2.31), libxcb1
 Recommends: libgl1, libxkbcommon0, xdg-desktop-portal
 Suggests: texlive-latex-extra
 Section: misc
 Priority: optional
-Homepage: https://github.com/khalidt/TeXora
+Homepage: https://github.com/BluesilveEmperor/TexOra--SS
 Description: Present PDF and LaTeX Beamer slides
  TeXora shows your notes, the current and next slide and the time,
  while the audience sees only the slide. It compiles LaTeX Beamer source

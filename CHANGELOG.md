@@ -2,6 +2,10 @@
 
 All notable changes to TeXora. The newest version is first.
 
+This repository is a fork, and it publishes its own versions, starting again at 1.0.0.
+The sections marked *Upstream* below are the original project's, kept as history; they
+belong to [khalidt/TeXora](https://github.com/khalidt/TeXora).
+
 ## 1.0.0
 
 The first release of this fork, which is maintained separately from the original project at
@@ -20,8 +24,11 @@ The first release of this fork, which is maintained separately from the original
 
 - The Video Guide template failed to compile on Windows: TeX's path search does not understand the
   `\\?\` prefix Windows adds to an absolute path, so the package `texoravideo` was not found.
+- The PDF engine was not next to the program. Cargo now writes the build script's folder one level
+  deeper than before, so the engine was copied into the build folder instead of the folder the
+  program is built in: the packages had no PDF engine, and opening a PDF could not work.
 
-## 1.5.3
+## Upstream 1.5.3
 
 ### Fixed
 
@@ -34,7 +41,7 @@ The first release of this fork, which is maintained separately from the original
 
 - The README shows one animated tour of TeXora instead of separate screenshots, a short demo of a video, a GIF and `animate` animations playing inside slides, and explains custom classes and themes.
 
-## 1.5.2
+## Upstream 1.5.2
 
 ### New
 
@@ -46,7 +53,7 @@ The first release of this fork, which is maintained separately from the original
 - **The version is shown** at the right end of the top row (for example `v1.5.2`; a click opens About) and in the window title.
 - **Errors and warnings are told apart.** The Problems tab says "Problems: 8 warnings" or "Problems: 1 error, 8 warnings", and lists errors first, then warnings, each under its own heading and with an Error or Warning label. Warnings do not stop the build; errors do. A successful build says "no errors, 8 warnings", and lines with a warning have orange numbers in the editor (errors red).
 
-## 1.5.1
+## Upstream 1.5.1
 
 ### Fixed
 
@@ -60,7 +67,7 @@ The first release of this fork, which is maintained separately from the original
 - **Sound with VLC only.** Without ffmpeg, a clip opened in VLC plays its sound in VLC (ffplay is not needed). The `mute` option and **Settings > Video > Play sound** off now also keep VLC silent, and Settings > Video says where the sound plays.
 - **Picture and sound in sync.** The picture now follows the sound's own clock (ffplay reports it), so it waits the moment ffplay takes to start instead of running ahead. Measured with a clip that flashes and beeps each second: the picture was 730 ms ahead of the sound, now within about 5 ms, also after pause and play. After a pause the sound starts again exactly where the picture is (before, it could start seconds early, from the last key frame).
 
-## 1.5.0
+## Upstream 1.5.0
 
 ### Security
 
@@ -85,7 +92,7 @@ The first release of this fork, which is maintained separately from the original
 - Check packages finds packages, classes, themes and TikZ libraries of your own that sit beside the `.tex` file (or in a folder you name, as in `\usepackage{styles/house}`), as LaTeX does, and no longer reports them as missing or suggests `tlmgr install` for them (#3).
 - The control bar under an animation (first, previous, play/pause, next, last) works again: its buttons now get the click, instead of the slide underneath taking it.
 
-## 1.4.1
+## Upstream 1.4.1
 
 ### Fixed
 
@@ -105,7 +112,7 @@ The first release of this fork, which is maintained separately from the original
 
 - **Wrap text** in the LaTeX studio wraps long lines at the editor's width; line numbers still count real lines.
 
-## 1.4.0
+## Upstream 1.4.0
 
 ### Improved
 
@@ -125,7 +132,7 @@ The first release of this fork, which is maintained separately from the original
 - Three animated templates: Motion Lab, Flipbook and Media Studio, with animations, GIF frames and a video clip.
 - The sample lecture opens with a 20-minute duration, a bookmark and example points in its notes.
 
-## 1.3.0
+## Upstream 1.3.0
 
 ### New
 
@@ -137,7 +144,7 @@ The first release of this fork, which is maintained separately from the original
 - Click an animation to play or pause it; the presenter view has first, previous, play/pause, next and last frame buttons.
 - Video clips (`\movie` or media9) show a play button and open in your video player; clips set to start by themselves do so during the talk.
 
-## 1.2.0
+## Upstream 1.2.0
 
 ### New
 
@@ -157,7 +164,7 @@ The first release of this fork, which is maintained separately from the original
 - After a rebuild, the presenter stays on the slide you were on.
 - A note being edited stays with its own presentation when you switch tabs.
 
-## 1.1.0
+## Upstream 1.1.0
 
 ### New
 
@@ -176,7 +183,7 @@ The first release of this fork, which is maintained separately from the original
 - Text in Arabic, Chinese, Japanese, Korean and emoji no longer shows as empty boxes.
 - Notes files saved as UTF-16 (for example by Windows Notepad) or in older encodings now open correctly.
 
-## 1.0.1
+## Upstream 1.0.1
 
 ### New
 
@@ -193,7 +200,7 @@ The first release of this fork, which is maintained separately from the original
 
 - **New LaTeX presentation** on Home is switched off.
 
-## 1.0.0
+## Upstream 1.0.0
 
 - First public release.
 - Presenter and audience views, LaTeX Beamer compiling and speaker notes.

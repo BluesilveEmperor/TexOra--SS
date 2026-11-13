@@ -6,6 +6,15 @@ This repository is a fork, and it publishes its own versions, starting again at 
 The sections marked *Upstream* below are the original project's, kept as history; they
 belong to [khalidt/TeXora](https://github.com/khalidt/TeXora).
 
+## 1.0.1
+
+### Changed
+
+- **The README is in Chinese now.** The whole README — features, download, the guide, the shortcuts
+  and the build instructions — is written in Chinese, and the English version is kept in
+  `README.en.md`, linked from the top of both. The packages carry both files, so the text is
+  available whichever language the reader prefers.
+
 ## 1.0.0
 
 The first release of this fork, which is maintained separately from the original project at

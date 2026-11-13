@@ -7,6 +7,22 @@ use crate::pdf::{LinkTarget, Region};
 use egui::epaint::Shape;
 use egui::*;
 
+/// A translated text with its {0}, {1}… placeholders filled in, in the order they are given.
+///
+/// `format!` wants its format string to be a literal, but a translated one is only known when the
+/// program runs, so the placeholders are put in by hand: the text first, the values after it.
+macro_rules! tfill {
+    ($text:expr $(, $arg:expr)* $(,)?) => {{
+        let mut text = String::from($text);
+        let args: Vec<String> = vec![$(format!("{}", $arg)),*];
+        for (i, arg) in args.iter().enumerate() {
+            let key = format!("{{{i}}}");
+            text = text.replace(key.as_str(), arg);
+        }
+        text
+    }};
+}
+
 /// Share of the width for the main panel so a slide of this shape fills the height.
 pub fn auto_col(width: f32, height: f32, aspect: f32, gap: f32) -> f32 {
     ((height * aspect + gap) / width.max(1.0)).clamp(0.45, 0.85)
@@ -64,7 +80,7 @@ fn drag_handle(ui: &Ui, id: &str, r: Rect, vertical: bool, line: bool) -> Handle
     }
     let size = if vertical { vec2(4.0, 34.0) } else { vec2(34.0, 4.0) };
     ui.painter().rect_filled(Rect::from_center_size(r.center(), size), 2.0, color);
-    let resp = resp.on_hover_text("Drag to resize. Double-click to fit automatically.");
+    let resp = resp.on_hover_text(crate::t!("Drag to resize. Double-click to fit automatically."));
     Handle { delta: resp.drag_delta(), double: resp.double_clicked(), done: resp.drag_stopped() }
 }
 
@@ -310,9 +326,9 @@ impl App {
             p.circle_filled(c, d / 2.0, Color32::from_rgba_unmultiplied(20, 40, 25, 200));
             icons::paint(&p, Rect::from_center_size(c + vec2(d * 0.05, 0.0), vec2(d * 0.5, d * 0.5)), Icon::Play, Color32::WHITE);
             let note = match (&clip.file, clip.autoplay) {
-                (None, _) => format!("{}: not found beside the presentation", clip.name),
-                (Some(_), true) => format!("{}: plays when shown, or click", clip.name),
-                (Some(_), false) => format!("{}: click to play", clip.name),
+                (None, _) => tfill!(crate::t!("{0}: not found beside the presentation"), clip.name),
+                (Some(_), true) => tfill!(crate::t!("{0}: plays when shown, or click"), clip.name),
+                (Some(_), false) => tfill!(crate::t!("{0}: click to play"), clip.name),
             };
             let g = ui.fonts_mut(|f| f.layout_no_wrap(note, FontId::proportional(11.5), Color32::WHITE));
             let label = Rect::from_center_size(pos2(c.x, (r.bottom() - 10.0).max(c.y + d / 2.0 + 10.0)), g.size() + vec2(10.0, 4.0));
@@ -375,20 +391,20 @@ impl App {
             ui.painter().with_clip_rect(rect).rect_stroke(cover, 6.0, Stroke::new(1.0, LINE), StrokeKind::Outside);
             let mut child = ui.new_child(UiBuilder::new().max_rect(bar).id_salt(("anim-controls", s.page, i)).layout(Layout::left_to_right(Align::Center)));
             child.spacing_mut().item_spacing.x = 0.0;
-            if sized_button(&mut child, Icon::First, false, "First frame", size, 13.0).clicked() {
+            if sized_button(&mut child, Icon::First, false, crate::t!("First frame"), size, 13.0).clicked() {
                 self.anim_seek(s.page, i, 0);
             }
-            if sized_button(&mut child, Icon::Prev, false, "Previous frame", size, 13.0).clicked() {
+            if sized_button(&mut child, Icon::Prev, false, crate::t!("Previous frame"), size, 13.0).clicked() {
                 self.anim_seek(s.page, i, frame.saturating_sub(1));
             }
-            let (icon, tip) = if playing { (Icon::Pause, "Pause the animation") } else { (Icon::Play, "Play the animation") };
+            let (icon, tip) = if playing { (Icon::Pause, crate::t!("Pause the animation")) } else { (Icon::Play, crate::t!("Play the animation")) };
             if sized_button(&mut child, icon, playing, tip, size, 13.0).clicked() {
                 self.anim_toggle(s.page, i);
             }
-            if sized_button(&mut child, Icon::Next, false, "Next frame", size, 13.0).clicked() {
+            if sized_button(&mut child, Icon::Next, false, crate::t!("Next frame"), size, 13.0).clicked() {
                 self.anim_seek(s.page, i, (frame + 1).min(frames.saturating_sub(1)));
             }
-            if sized_button(&mut child, Icon::Last, false, "Last frame", size, 13.0).clicked() {
+            if sized_button(&mut child, Icon::Last, false, crate::t!("Last frame"), size, 13.0).clicked() {
                 self.anim_seek(s.page, i, frames.saturating_sub(1));
             }
             child.label(RichText::new(format!(" {}/{}", frame + 1, frames)).size(12.0).color(MUTED));
@@ -574,7 +590,7 @@ impl App {
         let at = pos2((pos.x + 14.0).min(screen.right() - w - 12.0), (pos.y + 14.0).min(screen.bottom() - h - 36.0));
         Area::new(sid("peek")).order(Order::Tooltip).fixed_pos(at).interactable(false).show(ctx, |ui| {
             Frame::popup(ui.style()).show(ui, |ui| {
-                ui.label(RichText::new(format!("Slide {}: click to go there", s.frame + 1)).size(11.0).color(MUTED));
+                ui.label(RichText::new(tfill!(crate::t!("Slide {0}: click to go there"), s.frame + 1)).size(11.0).color(MUTED));
                 let (r, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
                 self.paint_page(ui, r, s.page, s.region, uv_rect(None));
             });
@@ -645,8 +661,8 @@ impl App {
         let top_box = Rect::from_min_max(col.min, pos2(col.right(), mid - gap / 2.0));
         let next_box = Rect::from_min_max(pos2(col.left(), mid + gap / 2.0), col.max);
         let p = ui.painter().clone();
-        let top_label = card(&p, top_box, if large { "Notes" } else { "Current slide" }, label);
-        let next_label = card(&p, next_box, "Next slide", label);
+        let top_label = card(&p, top_box, if large { crate::t!("Notes") } else { crate::t!("Current slide") }, label);
+        let next_label = card(&p, next_box, crate::t!("Next slide"), label);
         let next_rect = fit(Rect::from_min_max(next_box.min + vec2(14.0, next_label), next_box.max - vec2(14.0, 12.0)), aspect, false);
 
         let cur = self.cur;
@@ -660,7 +676,7 @@ impl App {
             self.notes_panel(ui, Rect::from_min_max(top_box.min + vec2(4.0, top_label), top_box.max - vec2(4.0, 6.0)), s * 0.85);
             self.nav_row(ui, Rect::from_min_max(pos2(area.left(), main.bottom()), pos2(area.right(), body_bottom)), s);
         } else {
-            let notes_label = card(&p, main, "Notes", label);
+            let notes_label = card(&p, main, crate::t!("Notes"), label);
             self.notes_panel(ui, Rect::from_min_max(main.min + vec2(4.0, notes_label), main.max - vec2(4.0, 6.0)), s);
             let r = fit(Rect::from_min_max(top_box.min + vec2(14.0, top_label), top_box.max - vec2(14.0, 12.0)), aspect, false);
             self.paint_stage(ui, r);
@@ -695,11 +711,11 @@ impl App {
         // Present opens the audience window, and closes it again, like F5.
         let open = self.audience_open;
         let bh = (40.0 * k).min(r.height() - 8.0);
-        let word = if open { "Presenting" } else { "Present" };
+        let word = if open { crate::t!("Presenting") } else { crate::t!("Present") };
         let font = FontId::new(17.0 * k, FontFamily::Name("medium".into()));
         let g = p.layout_no_wrap(word.to_string(), font, INK);
         let br = Rect::from_min_size(pos2(r.right() - g.size().x - 66.0 * k, cy - bh / 2.0), vec2(g.size().x + 66.0 * k, bh));
-        let tip = if open { "Close the audience window (F5)" } else { "Open the audience window and start the timer (F5)" };
+        let tip = if open { crate::t!("Close the audience window (F5)") } else { crate::t!("Open the audience window and start the timer (F5)") };
         if soft_button(ui, br, "present-button", tip, true, open).clicked() {
             let ctx = ui.ctx().clone();
             self.run(crate::settings::Action::Present, &ctx);
@@ -713,25 +729,25 @@ impl App {
         let good = (LEAF_SOFT, LEAF_DARK);
         let (text, (fill, ink), icon) = if let Some(f) = self.frozen {
             let n = self.deck.slides.get(f).map(|x| x.frame + 1).unwrap_or(0);
-            (format!("Audience stays on slide {n}. Press F to release."), warn, Some(Icon::Freeze))
+            (tfill!(crate::t!("Audience stays on slide {0}. Press F to release."), n), warn, Some(Icon::Freeze))
         } else if self.screen == Screen::Black {
-            ("Audience sees a black screen".to_string(), warn, Some(Icon::Black))
+            (crate::t!("Audience sees a black screen").to_string(), warn, Some(Icon::Black))
         } else if self.screen == Screen::White {
-            ("Audience sees the whiteboard".to_string(), warn, Some(Icon::White))
+            (crate::t!("Audience sees the whiteboard").to_string(), warn, Some(Icon::White))
         } else if open {
-            ("Audience window is live".to_string(), good, Some(Icon::Check))
+            (crate::t!("Audience window is live").to_string(), good, Some(Icon::Check))
         } else {
             let n = self.displays.len().max(1);
             // Notes of any kind: PDF notes pages, the .note.md file, or \note{} in the source.
             let notes = self.deck.slides.iter().any(|x| x.notes.is_some()) || (0..self.deck.frames.len()).any(|f| self.note_for(f).is_some());
-            let parts = format!(
-                "{n} display{}, {}, {}",
-                if n == 1 { "" } else { "s" },
-                if self.side.target_minutes > 0.0 { "timer set" } else { "no duration set" },
-                if notes { "notes found" } else { "no notes" }
+            let parts = tfill!(
+                crate::t!(if n == 1 { "{0} display, {1}, {2}" } else { "{0} displays, {1}, {2}" }),
+                n,
+                crate::t!(if self.side.target_minutes > 0.0 { "timer set" } else { "no duration set" }),
+                crate::t!(if notes { "notes found" } else { "no notes" })
             );
             if n >= 2 {
-                (format!("Ready: {parts}"), good, Some(Icon::Check))
+                (tfill!(crate::t!("Ready: {0}"), parts), good, Some(Icon::Check))
             } else {
                 (parts, calm, None)
             }
@@ -766,12 +782,12 @@ impl App {
     fn tool_palette(&mut self, ui: &mut Ui, at: Pos2, k: f32) {
         use crate::settings::Action;
         let tools = [
-            (Tool::Pointer, Icon::Pointer, Action::Pointer, "Pointer (V)"),
-            (Tool::Pen, Icon::Pen, Action::Pen, "Pen (D)"),
-            (Tool::Highlighter, Icon::Marker, Action::Highlighter, "Marker (H)"),
-            (Tool::Laser, Icon::Laser, Action::Laser, "Laser pointer (L)"),
-            (Tool::Eraser, Icon::Eraser, Action::Eraser, "Eraser (X)"),
-            (Tool::Zoom, Icon::ZoomBox, Action::ZoomTool, "Zoom into an area (Z)"),
+            (Tool::Pointer, Icon::Pointer, Action::Pointer, crate::t!("Pointer (V)")),
+            (Tool::Pen, Icon::Pen, Action::Pen, crate::t!("Pen (D)")),
+            (Tool::Highlighter, Icon::Marker, Action::Highlighter, crate::t!("Marker (H)")),
+            (Tool::Laser, Icon::Laser, Action::Laser, crate::t!("Laser pointer (L)")),
+            (Tool::Eraser, Icon::Eraser, Action::Eraser, crate::t!("Eraser (X)")),
+            (Tool::Zoom, Icon::ZoomBox, Action::ZoomTool, crate::t!("Zoom into an area (Z)")),
         ];
         let b = 42.0 * k;
         let space = 6.0 * k;
@@ -804,10 +820,15 @@ impl App {
         let step = self.deck.slides.get(self.cur).map(|x| x.step + 1).unwrap_or(1);
         let mut tag = String::new();
         if self.frame() >= talk {
-            tag += "backup slide";
+            tag += crate::t!("backup slide");
         }
         if steps > 1 {
-            tag += &format!("{}step {step} of {steps}", if tag.is_empty() { "" } else { ", " });
+            let step_tag = if tag.is_empty() {
+                tfill!(crate::t!("step {0} of {1}"), step, steps)
+            } else {
+                tfill!(crate::t!("backup slide, step {0} of {1}"), step, steps)
+            };
+            tag += &step_tag;
         }
         let g1 = p.layout_no_wrap(number, FontId::new(20.0 * k, FontFamily::Name("medium".into())), INK);
         let g2 = p.layout_no_wrap(tag.clone(), FontId::proportional(17.0 * k), if self.frame() >= talk { WARN } else { MUTED });
@@ -827,7 +848,7 @@ impl App {
         let last = self.deck.slides.len().saturating_sub(1);
         let prev = Rect::from_min_size(pos2(x, cy - bh / 2.0), vec2(bw, bh));
         let ctx = ui.ctx().clone();
-        if soft_button(ui, prev, "nav-prev", "Previous (Left arrow)", self.cur > 0, false).clicked() {
+        if soft_button(ui, prev, "nav-prev", crate::t!("Previous (Left arrow)"), self.cur > 0, false).clicked() {
             self.run(Action::Prev, &ctx);
         }
         icons::paint(&p, Rect::from_center_size(prev.center(), Vec2::splat(18.0 * k)), Icon::Prev, if self.cur > 0 { INK } else { Color32::from_gray(190) });
@@ -842,7 +863,7 @@ impl App {
         }
         x += space;
         let next = Rect::from_min_size(pos2(x, cy - bh / 2.0), vec2(bw, bh));
-        if soft_button(ui, next, "nav-next", "Next (Right arrow)", self.cur < last, false).clicked() {
+        if soft_button(ui, next, "nav-next", crate::t!("Next (Right arrow)"), self.cur < last, false).clicked() {
             self.run(Action::Next, &ctx);
         }
         icons::paint(&p, Rect::from_center_size(next.center(), Vec2::splat(18.0 * k)), Icon::Next, if self.cur < last { INK } else { Color32::from_gray(190) });
@@ -906,8 +927,8 @@ impl App {
             let strip = Rect::from_min_max(pos2(rect.left(), rect.bottom() - 30.0), rect.max);
             ui.painter().rect_filled(strip, 0.0, Color32::from_rgb(244, 243, 240));
             let mut row = ui.new_child(UiBuilder::new().max_rect(strip.shrink2(vec2(10.0, 3.0))).layout(Layout::left_to_right(Align::Center)));
-            let tip = "On: the note also goes into the .tex file, as \\note{...}, and the slides rebuild in the background. Off: it is saved in the .note.md file beside the presentation. Either way it shows at once.";
-            if row.checkbox(&mut self.st.notes_in_tex, "Also save in the .tex file (\\note)").on_hover_text(tip).changed() {
+            let tip = crate::t!("On: the note also goes into the .tex file, as \\note{...}, and the slides rebuild in the background. Off: it is saved in the .note.md file beside the presentation. Either way it shows at once.");
+            if row.checkbox(&mut self.st.notes_in_tex, crate::t!("Also save in the .tex file (\\note)")).on_hover_text(tip).changed() {
                 self.save_layout();
             }
             Rect::from_min_max(rect.min, pos2(rect.right(), strip.top() - 2.0))
@@ -921,7 +942,7 @@ impl App {
         let mut child = ui.new_child(UiBuilder::new().max_rect(inner));
         child.set_clip_rect(inner.intersect(ui.clip_rect()));
         if *slide != shown {
-            child.label(RichText::new(format!("Editing the notes for slide {}", *slide + 1)).size(13.0).color(WARN));
+            child.label(RichText::new(tfill!(crate::t!("Editing the notes for slide {0}"), *slide + 1)).size(13.0).color(WARN));
         }
         ScrollArea::vertical().id_salt("notes-edit").auto_shrink([false, false]).show(&mut child, |ui| {
             let id = sid("notes-editor");
@@ -945,7 +966,7 @@ impl App {
                 let rows = (ui.available_height() / (size * 1.3)) as usize;
                 let edit = TextEdit::multiline(draft)
                     .id(id)
-                    .hint_text("Type your notes. **bold**, *emphasis*, - lists and # headings work.")
+                    .hint_text(crate::t!("Type your notes. **bold**, *emphasis*, - lists and # headings work."))
                     .font(FontId::proportional(size))
                     .desired_width(f32::INFINITY)
                     .desired_rows(rows.max(2))
@@ -1022,12 +1043,12 @@ impl App {
                 let out = ScrollArea::vertical().id_salt("notes-text").auto_shrink([false, false]).show(&mut child, |ui| match &text {
                     Some(t) => markdown(ui, t, size),
                     None => {
-                        ui.label(RichText::new("No notes on this slide yet.").size((20.0 * s).max(11.0)).color(MUTED));
+                        ui.label(RichText::new(crate::t!("No notes on this slide yet.")).size((20.0 * s).max(11.0)).color(MUTED));
                         if unmatched {
-                            let why = "The .tex file has \\note{} commands, but its frames cannot be matched to these slides one for one (some frames are in separate files or made by a macro), so they are not shown here. Notes written here are saved in the .note.md file.";
+                            let why = crate::t!("The .tex file has \\note{} commands, but its frames cannot be matched to these slides one for one (some frames are in separate files or made by a macro), so they are not shown here. Notes written here are saved in the .note.md file.");
                             ui.label(RichText::new(why).size((13.0 * s).max(10.5)).color(MUTED));
                         }
-                        write = ui.button("Write notes").clicked();
+                        write = ui.button(crate::t!("Write notes")).clicked();
                     }
                 });
                 if write {
@@ -1065,8 +1086,8 @@ impl App {
         }
         // The last compile's errors stay in view until the file compiles cleanly.
         let compile_problem = (self.src.is_some() && self.compile_ok == Some(false) && !self.compiling).then(|| {
-            let first = self.problems.iter().find(|p| p.is_error).map(|p| format!("{}{}", p.line.map(|l| format!("line {l}: ")).unwrap_or_default(), p.message));
-            format!("LaTeX: {}  Fix it in your editor and save; the slides rebuild.", first.unwrap_or_else(|| self.compile_note.clone()))
+            let first = self.problems.iter().find(|p| p.is_error).map(|p| format!("{}{}", p.line.map(|l| tfill!(crate::t!("line {0}: "), l)).unwrap_or_default(), p.message));
+            tfill!(crate::t!("LaTeX: {0}  Fix it in your editor and save; the slides rebuild."), first.unwrap_or_else(|| self.compile_note.clone()))
         });
         let msg = self.engine_error.clone().or(if self.status.is_empty() { compile_problem.clone() } else { None }).unwrap_or_else(|| self.status.clone());
         if !msg.is_empty() {
@@ -1088,7 +1109,7 @@ impl App {
         let talk = self.deck.talk_frames().clamp(1, n);
         let mut starts: Vec<(String, usize)> = self.deck.sections.iter().filter(|x| x.first_frame < talk).map(|x| (x.title.clone(), x.first_frame)).collect();
         if starts.first().is_none_or(|f| f.1 > 0) {
-            starts.insert(0, (if starts.is_empty() { "Slides" } else { "Opening" }.to_string(), 0));
+            starts.insert(0, (if starts.is_empty() { crate::t!("Slides") } else { crate::t!("Opening") }.to_string(), 0));
         }
         let mut segs: Vec<(String, usize, usize, [u8; 3])> = vec![];
         for (i, (t, a)) in starts.iter().enumerate() {
@@ -1098,7 +1119,7 @@ impl App {
             }
         }
         if talk < n {
-            segs.push(("Backup".to_string(), talk, n, [140, 110, 70]));
+            segs.push((crate::t!("Backup").to_string(), talk, n, [140, 110, 70]));
         }
         let space = 4.0 * k;
         let room = r.width() - space * segs.len().saturating_sub(1) as f32;
@@ -1108,8 +1129,8 @@ impl App {
         let mut go = None;
         for (i, (title, a, b, c)) in segs.iter().enumerate() {
             let seg = Rect::from_min_size(pos2(x, r.top()), vec2(room * (b - a) as f32 / n as f32, r.height()));
-            let tip = if b - a == 1 { format!("{title}: slide {}", a + 1) } else { format!("{title}: slides {} to {}", a + 1, b) };
-            let resp = ui.interact(seg, sid(&format!("timeline-{i}")), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(format!("{tip}. Click to go there."));
+            let tip = if b - a == 1 { tfill!(crate::t!("{0}: slide {1}"), title, a + 1) } else { tfill!(crate::t!("{0}: slides {1} to {2}"), title, a + 1, b) };
+            let resp = ui.interact(seg, sid(&format!("timeline-{i}")), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(tfill!(crate::t!("{0}. Click to go there."), tip));
             p.rect_filled(seg, 6.0 * k, soften(*c, if resp.hovered() { 0.6 } else { 0.78 }));
             // A name too long for its block is shortened with an ellipsis, or left out.
             let font = FontId::proportional(15.0 * k);
@@ -1155,7 +1176,7 @@ impl App {
         let t: String = fmt_time(self.elapsed as f32).chars().map(|c| if c.is_ascii_digit() { '8' } else { c }).collect();
         let time_w = p.layout_no_wrap(t, FontId::new(22.0 * k, FontFamily::Name("strong".into())), INK).size().x;
         let target = self.side.target_minutes;
-        let dur = if target > 0.0 { format!("of {}", fmt_time(target * 60.0)) } else { "Set duration".to_string() };
+        let dur = if target > 0.0 { tfill!(crate::t!("of {0}"), fmt_time(target * 60.0)) } else { crate::t!("Set duration").to_string() };
         let dur_w = p.layout_no_wrap(dur, FontId::proportional(18.0 * k), MUTED).size().x;
         let btn = (32.0 * s).clamp(26.0, 40.0);
         30.0 * k + time_w + 12.0 * k + dur_w + 16.0 * k + btn * 3.0 + 6.0
@@ -1191,7 +1212,7 @@ impl App {
         let width = p.layout_no_wrap(t.chars().map(|c| if c.is_ascii_digit() { '8' } else { c }).collect(), font.clone(), color).size().x;
         let g = p.layout_no_wrap(t, font, color);
         let time_r = Rect::from_min_size(pos2(x, cy - g.size().y / 2.0), vec2(width, g.size().y));
-        let tip = if self.timer_on { "Click to pause the timer" } else { "Click to start the timer" };
+        let tip = if self.timer_on { crate::t!("Click to pause the timer") } else { crate::t!("Click to start the timer") };
         let hit = ui.interact(time_r.expand(5.0), sid("time-elapsed"), Sense::click()).on_hover_text(tip).on_hover_cursor(CursorIcon::PointingHand);
         if hit.hovered() {
             p.rect_filled(time_r.expand(5.0), 6.0, LEAF_SOFT);
@@ -1203,10 +1224,10 @@ impl App {
         }
         x = time_r.right() + 12.0 * k;
 
-        let dur = if target > 0.0 { format!("of {}", fmt_time(target * 60.0)) } else { "Set duration".to_string() };
+        let dur = if target > 0.0 { tfill!(crate::t!("of {0}"), fmt_time(target * 60.0)) } else { crate::t!("Set duration").to_string() };
         let g = p.layout_no_wrap(dur, FontId::proportional(18.0 * k), MUTED);
         let dur_r = Rect::from_min_size(pos2(x, cy - g.size().y / 2.0), g.size());
-        let dur_hit = ui.interact(dur_r.expand(5.0), sid("duration"), Sense::click()).on_hover_text("Click to set the talk duration").on_hover_cursor(CursorIcon::PointingHand);
+        let dur_hit = ui.interact(dur_r.expand(5.0), sid("duration"), Sense::click()).on_hover_text(crate::t!("Click to set the talk duration")).on_hover_cursor(CursorIcon::PointingHand);
         if dur_hit.hovered() {
             p.rect_filled(dur_r.expand(5.0), 6.0, LEAF_SOFT);
         }
@@ -1222,13 +1243,13 @@ impl App {
         let mut row = ui.new_child(UiBuilder::new().max_rect(buttons).layout(Layout::left_to_right(Align::Center)));
         row.spacing_mut().item_spacing.x = 3.0;
         let glyph = btn * 0.55;
-        if sized_button(&mut row, Icon::Play, self.timer_on, "Start or resume the timer", btn, glyph).clicked() {
+        if sized_button(&mut row, Icon::Play, self.timer_on, crate::t!("Start or resume the timer"), btn, glyph).clicked() {
             self.start_timer();
         }
-        if sized_button(&mut row, Icon::Pause, !self.timer_on && self.elapsed > 0.0, "Pause the timer", btn, glyph).clicked() {
+        if sized_button(&mut row, Icon::Pause, !self.timer_on && self.elapsed > 0.0, crate::t!("Pause the timer"), btn, glyph).clicked() {
             self.pause_timer();
         }
-        if sized_button(&mut row, Icon::Stop, false, "Stop and reset the timer", btn, glyph).clicked() {
+        if sized_button(&mut row, Icon::Stop, false, crate::t!("Stop and reset the timer"), btn, glyph).clicked() {
             self.stop_timer();
         }
     }
@@ -1251,21 +1272,21 @@ impl App {
             let should = (self.elapsed as f32 / (target * 60.0)).min(1.0);
             let diff = (should - done) * target * 60.0;
             let (msg, fill, ink) = if left < 0.0 {
-                (format!("{} over", fmt_time(-left)), Color32::from_rgb(246, 214, 214), BAD)
+                (tfill!(crate::t!("{0} over"), fmt_time(-left)), Color32::from_rgb(246, 214, 214), BAD)
             } else if diff.abs() > 20.0 {
                 if diff > 0.0 {
                     behind = diff;
-                    (format!("{} behind", fmt_time(diff)), Color32::from_rgb(244, 222, 171), Color32::from_rgb(107, 74, 10))
+                    (tfill!(crate::t!("{0} behind"), fmt_time(diff)), Color32::from_rgb(244, 222, 171), Color32::from_rgb(107, 74, 10))
                 } else {
-                    (format!("{} ahead", fmt_time(-diff)), LEAF_SOFT, LEAF_DARK)
+                    (tfill!(crate::t!("{0} ahead"), fmt_time(-diff)), LEAF_SOFT, LEAF_DARK)
                 }
             } else {
-                (format!("{} left", fmt_time(left)), Color32::from_rgb(234, 233, 230), MUTED)
+                (tfill!(crate::t!("{0} left"), fmt_time(left)), Color32::from_rgb(234, 233, 230), MUTED)
             };
             x = pill(&p, pos2(x, cy), false, &msg, 16.0 * k, fill, ink, None).right() + 14.0 * k;
         }
         if !self.timer_on && self.elapsed > 0.0 {
-            let g = p.layout_no_wrap("paused".to_string(), FontId::proportional(16.0 * k), MUTED);
+            let g = p.layout_no_wrap(crate::t!("paused").to_string(), FontId::proportional(16.0 * k), MUTED);
             let w = g.size().x;
             p.galley(pos2(x, cy - g.size().y / 2.0), g, MUTED);
             x += w + 12.0 * k;
@@ -1277,12 +1298,12 @@ impl App {
             let per = target * 60.0 / talk as f32;
             let skip = ((behind / per.max(1.0)).ceil() as usize).clamp(1, 3).min(talk - f - 2);
             let land = f + 1 + skip;
-            let text = if skip == 1 { format!("Skip slide {} to catch up?", f + 2) } else { format!("Skip slides {} to {} to catch up?", f + 2, f + 1 + skip) };
+            let text = if skip == 1 { tfill!(crate::t!("Skip slide {0} to catch up?"), f + 2) } else { tfill!(crate::t!("Skip slides {0} to {1} to catch up?"), f + 2, f + 1 + skip) };
             let g = p.layout_no_wrap(text, FontId::proportional(17.0 * k), INK);
             let bh = (38.0 * k).min(r.height() - 4.0);
             let br = Rect::from_min_size(pos2(r.right() - g.size().x - 32.0 * k, cy - bh / 2.0), vec2(g.size().x + 32.0 * k, bh));
             if br.left() > x {
-                let tip = format!("Goes on to slide {}, leaving out the slides before it.", land + 1);
+                let tip = tfill!(crate::t!("Goes on to slide {0}, leaving out the slides before it."), land + 1);
                 if soft_button(ui, br, "catch-up", &tip, true, false).clicked() {
                     if let Some(slide) = self.deck.slides.iter().position(|s| s.frame == land) {
                         self.jump(slide);
@@ -1302,20 +1323,20 @@ impl App {
         let inner = Area::new(sid("duration-popup")).order(Order::Foreground).fixed_pos(at).show(ctx, |ui| {
             Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_width(w - 20.0);
-                ui.label(RichText::new("Talk duration").size(15.0).family(FontFamily::Name("medium".into())).color(INK));
+                ui.label(RichText::new(crate::t!("Talk duration")).size(15.0).family(FontFamily::Name("medium".into())).color(INK));
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = vec2(5.0, 5.0);
                     for m in [5.0_f32, 10.0, 15.0, 20.0, 30.0, 45.0, 60.0, 90.0] {
-                        if ui.add(Button::selectable(self.side.target_minutes == m, format!("{m:.0} min"))).clicked() {
+                        if ui.add(Button::selectable(self.side.target_minutes == m, tfill!(crate::t!("{0} min"), m))).clicked() {
                             self.side.target_minutes = m;
                             self.save_side();
                         }
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Other");
-                    ui.add(DragValue::new(&mut self.side.target_minutes).range(0.0..=600.0).speed(1.0).suffix(" min"));
-                    if ui.button("Clear").clicked() {
+                    ui.label(crate::t!("Other"));
+                    ui.add(DragValue::new(&mut self.side.target_minutes).range(0.0..=600.0).speed(1.0).suffix(crate::t!(" min")));
+                    if ui.button(crate::t!("Clear")).clicked() {
                         self.side.target_minutes = 0.0;
                     }
                 });
@@ -1352,7 +1373,7 @@ impl App {
         let right = Rect::from_min_max(pos2(x + 7.0, body.top()), body.max);
         let label = 14.0 * k;
         let p = ui.painter().clone();
-        let top = card(&p, left, "Audience view", label);
+        let top = card(&p, left, crate::t!("Audience view"), label);
         let slide = fit(Rect::from_min_max(left.min + vec2(14.0, top), left.max - vec2(14.0, 12.0)), aspect, false);
         let cur = self.cur;
         self.paint_stage(ui, slide);
@@ -1370,9 +1391,9 @@ impl App {
         let cut = right.top() + right.height() * row;
         let notes = Rect::from_min_max(right.min, pos2(right.right(), cut));
         let next = Rect::from_min_max(pos2(right.left(), cut + 14.0), right.max);
-        let top = card(&p, notes, "Notes", label);
+        let top = card(&p, notes, crate::t!("Notes"), label);
         self.notes_panel(ui, Rect::from_min_max(notes.min + vec2(4.0, top), notes.max - vec2(4.0, 6.0)), (notes.width() / 1000.0).clamp(0.5, 1.1));
-        let top = card(&p, next, "Next slide", label);
+        let top = card(&p, next, crate::t!("Next slide"), label);
         let next_rect = fit(Rect::from_min_max(next.min + vec2(14.0, top), next.max - vec2(14.0, 12.0)), aspect, false);
         self.paint_next(ui, next_rect);
         p.rect_stroke(next_rect, 2.0, Stroke::new(1.0, CARD_LINE), StrokeKind::Outside);
@@ -1404,7 +1425,7 @@ impl App {
             self.prefetch(next);
         } else {
             ui.painter().rect_filled(r, 0.0, Color32::from_rgb(235, 235, 233));
-            ui.painter().text(r.center(), Align2::CENTER_CENTER, "End of slides", FontId::proportional(15.0), MUTED);
+            ui.painter().text(r.center(), Align2::CENTER_CENTER, crate::t!("End of slides"), FontId::proportional(15.0), MUTED);
         }
     }
 
@@ -1417,12 +1438,12 @@ impl App {
                 ui.add_space(full.height() * 0.3);
                 let (r, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
                 crate::icons::paint(ui.painter(), r, crate::icons::Icon::Warn, BAD);
-                ui.label(RichText::new("TeXora's PDF engine could not start").size(20.0).color(INK));
+                ui.label(RichText::new(crate::t!("TeXora's PDF engine could not start")).size(20.0).color(INK));
                 ui.label(RichText::new(crate::syscheck::engine_problem(os, &e)).size(15.0).color(MUTED));
                 ui.add_space(6.0);
-                ui.label(RichText::new(format!("Download TeXora again and keep its files together: {} must stay beside the TeXora program.", crate::syscheck::engine_file(os))).size(14.0).color(MUTED));
+                ui.label(RichText::new(tfill!(crate::t!("Download TeXora again and keep its files together: {0} must stay beside the TeXora program."), crate::syscheck::engine_file(os))).size(14.0).color(MUTED));
                 ui.add_space(10.0);
-                if ui.button("Open System check").clicked() {
+                if ui.button(crate::t!("Open System check")).clicked() {
                     self.syscheck_open = true;
                 }
             });
@@ -1437,7 +1458,7 @@ impl App {
         child.vertical_centered(|ui| {
             ui.add_space(full.height() * 0.4);
             ui.spinner();
-            let what = if self.compiling { "Compiling your slides…" } else { "Opening your slides…" };
+            let what = if self.compiling { crate::t!("Compiling your slides…") } else { crate::t!("Opening your slides…") };
             ui.label(RichText::new(what).size(17.0).color(MUTED));
         });
     }
@@ -1486,7 +1507,7 @@ impl App {
             self.activate(i);
         }
         let multi = self.displays.len() >= 2;
-        let mut vb = ViewportBuilder::default().with_title("TeXora Audience View").with_inner_size([960.0, 720.0]);
+        let mut vb = ViewportBuilder::default().with_title(crate::t!("TeXora Audience View")).with_inner_size([960.0, 720.0]);
         if multi {
             if let Some(d) = self.displays.get(self.display) {
                 let scale = if cfg!(target_os = "macos") { 1.0 } else { d.scale_factor.max(1.0) };
@@ -1532,10 +1553,10 @@ impl App {
         let inner = full.shrink(10.0);
         let mut child = ui.new_child(UiBuilder::new().max_rect(inner));
         child.horizontal(|ui| {
-            ui.label(RichText::new("Slide overview").size(17.0).color(INK));
-            ui.label(RichText::new("Click a slide to go there. Esc returns.").size(12.0).color(MUTED));
+            ui.label(RichText::new(crate::t!("Slide overview")).size(17.0).color(INK));
+            ui.label(RichText::new(crate::t!("Click a slide to go there. Esc returns.")).size(12.0).color(MUTED));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.button("Back to presenter").clicked() {
+                if ui.button(crate::t!("Back to presenter")).clicked() {
                     self.view = View::Presenter;
                 }
             });
@@ -1548,7 +1569,7 @@ impl App {
                     ui.label(RichText::new(sec.title).size(14.0).color(LEAF_DARK));
                 }
                 if self.deck.backup_start == Some(f) {
-                    ui.label(RichText::new("Backup slides").size(14.0).color(WARN));
+                    ui.label(RichText::new(crate::t!("Backup slides")).size(14.0).color(WARN));
                 }
                 let row_end = (f + cols).min(n);
                 let stop = (f + 1..row_end)
@@ -1573,7 +1594,7 @@ impl App {
                             };
                             ui.painter().rect_stroke(pic, 2.0, Stroke::new(wid, col), StrokeKind::Outside);
                             let steps = fr.last - fr.first + 1;
-                            let cap = if steps > 1 { format!("{}  {}  ({steps} steps)", k + 1, fr.title) } else { format!("{}  {}", k + 1, fr.title) };
+                            let cap = if steps > 1 { tfill!(crate::t!("{0}  {1}  ({2} steps)"), k + 1, fr.title, steps) } else { format!("{}  {}", k + 1, fr.title) };
                             let g = ui.painter().layout(cap, FontId::proportional(11.5), MUTED, thumb.x);
                             ui.painter().with_clip_rect(rect).galley(pos2(rect.left(), pic.bottom() + 3.0), g, MUTED);
                         }
@@ -1747,9 +1768,9 @@ fn rtl_paragraph(ui: &mut Ui, segs: &[(&str, usize)], formats: &[egui::text::Tex
 }
 
 pub fn engine_combo(ui: &mut Ui, e: &mut Engine) {
-    ComboBox::from_id_salt("engine").selected_text(e.name()).width(92.0).show_ui(ui, |ui| {
+    ComboBox::from_id_salt("engine").selected_text(e.label()).width(92.0).show_ui(ui, |ui| {
         for x in Engine::ALL {
-            ui.selectable_value(e, x, x.name());
+            ui.selectable_value(e, x, x.label());
         }
     });
 }

@@ -12,6 +12,22 @@ pub const WEBSITE: &str = "https://github.com/khalidt/TeXora";
 
 pub const DEVELOPER: &str = "Khalid Alkhaldi";
 
+/// A translated text with its {0}, {1}… placeholders filled in, in the order they are given.
+///
+/// `format!` wants its format string to be a literal, but a translated one is only known when the
+/// program runs, so the placeholders are put in by hand: the text first, the values after it.
+macro_rules! tfill {
+    ($text:expr $(, $arg:expr)* $(,)?) => {{
+        let mut text = String::from($text);
+        let args: Vec<String> = vec![$(format!("{}", $arg)),*];
+        for (i, arg) in args.iter().enumerate() {
+            let key = format!("{{{i}}}");
+            text = text.replace(key.as_str(), arg);
+        }
+        text
+    }};
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Outcome {
     UpToDate,
@@ -50,10 +66,10 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
 /// Reads GitHub's description of the latest release.
 pub fn interpret(body: &str, current: &str) -> Outcome {
     let Ok(v) = serde_json::from_str::<Value>(body) else {
-        return Outcome::Failed("The update information could not be read.".to_string());
+        return Outcome::Failed(crate::t!("The update information could not be read.").to_string());
     };
     let Some(tag) = v["tag_name"].as_str() else {
-        return Outcome::Failed("The update information has no version number.".to_string());
+        return Outcome::Failed(crate::t!("The update information has no version number.").to_string());
     };
     if is_newer(tag, current) {
         let files: Vec<(String, String)> = v["assets"]
@@ -97,12 +113,12 @@ fn from_status(status: u16, body: impl FnOnce() -> Option<String>) -> Outcome {
     match status {
         200 => match body() {
             Some(t) => interpret(&t, VERSION),
-            None => Outcome::Failed("The update information could not be read.".to_string()),
+            None => Outcome::Failed(crate::t!("The update information could not be read.").to_string()),
         },
         // GitHub says this when the project has no published release: nothing newer exists.
         404 => Outcome::UpToDate,
-        403 | 429 => Outcome::Failed("GitHub is busy right now. Try again later.".to_string()),
-        s => Outcome::Failed(format!("GitHub answered with an error ({s}).")),
+        403 | 429 => Outcome::Failed(crate::t!("GitHub is busy right now. Try again later.").to_string()),
+        s => Outcome::Failed(tfill!(crate::t!("GitHub answered with an error ({0})."), s)),
     }
 }
 
@@ -122,7 +138,7 @@ pub fn check(url: &str) -> Outcome {
             let mut body = resp.into_body();
             from_status(status, move || body.read_to_string().ok())
         }
-        Err(_) => Outcome::Failed("Could not reach GitHub. Check your internet connection.".to_string()),
+        Err(_) => Outcome::Failed(crate::t!("Could not reach GitHub. Check your internet connection.").to_string()),
     }
 }
 

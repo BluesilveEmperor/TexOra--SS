@@ -5,14 +5,30 @@ use egui::*;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+/// A translated text with its {0}, {1}… placeholders filled in, in the order they are given.
+///
+/// `format!` wants its format string to be a literal, but a translated one is only known when the
+/// program runs, so the placeholders are put in by hand: the text first, the values after it.
+macro_rules! tfill {
+    ($text:expr $(, $arg:expr)* $(,)?) => {{
+        let mut text = String::from($text);
+        let args: Vec<String> = vec![$(format!("{}", $arg)),*];
+        for (i, arg) in args.iter().enumerate() {
+            let key = format!("{{{i}}}");
+            text = text.replace(key.as_str(), arg);
+        }
+        text
+    }};
+}
+
 /// "today", "yesterday" or "12 days ago", from a file's last change.
 pub fn age_text(then: SystemTime, now: SystemTime) -> String {
     let days = now.duration_since(then).map(|d| d.as_secs() / 86_400).unwrap_or(0);
     match days {
-        0 => "Today".to_string(),
-        1 => "Yesterday".to_string(),
-        2..=59 => format!("{days} days ago"),
-        _ => format!("{} months ago", days / 30),
+        0 => crate::t!("Today").to_string(),
+        1 => crate::t!("Yesterday").to_string(),
+        2..=59 => tfill!(crate::t!("{0} days ago"), days),
+        _ => tfill!(crate::t!("{0} months ago"), days / 30),
     }
 }
 
@@ -51,7 +67,7 @@ impl App {
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
                     ui.label(RichText::new("TeXora").size(32.0).family(FontFamily::Name("strong".into())).color(INK));
-                    ui.label(RichText::new("Present PDF and LaTeX Beamer slides with confidence").size(16.0).color(MUTED));
+                    ui.label(RichText::new(crate::t!("Present PDF and LaTeX Beamer slides with confidence")).size(16.0).color(MUTED));
                 });
             });
             ui.add_space(24.0);
@@ -80,18 +96,18 @@ impl App {
     }
 
     fn start_actions(&mut self, ui: &mut Ui, width: f32) {
-        ui.label(RichText::new("Get started").size(17.0).family(FontFamily::Name("medium".into())).color(INK));
+        ui.label(RichText::new(crate::t!("Get started")).size(17.0).family(FontFamily::Name("medium".into())).color(INK));
         ui.add_space(4.0);
-        if card(ui, width, Icon::New, "New LaTeX presentation", "Start from a ready Beamer template", true).clicked() {
+        if card(ui, width, Icon::New, crate::t!("New LaTeX presentation"), crate::t!("Start from a ready Beamer template"), true).clicked() {
             self.new_presentation_dialog();
         }
-        if card(ui, width, Icon::Pdf, "Open PDF presentation", "Present any PDF, with notes if it has them", false).clicked() {
-            self.open_dialog("PDF presentation", &["pdf"]);
+        if card(ui, width, Icon::Pdf, crate::t!("Open PDF presentation"), crate::t!("Present any PDF, with notes if it has them"), false).clicked() {
+            self.open_dialog(crate::t!("PDF presentation"), &["pdf"]);
         }
-        if card(ui, width, Icon::Folder, "Open LaTeX project", "Compile a .tex file, edit it and present", false).clicked() {
-            self.open_dialog("LaTeX source", &["tex"]);
+        if card(ui, width, Icon::Folder, crate::t!("Open LaTeX project"), crate::t!("Compile a .tex file, edit it and present"), false).clicked() {
+            self.open_dialog(crate::t!("LaTeX source"), &["tex"]);
         }
-        if card(ui, width, Icon::Spark, "Try the sample lecture", "See notes, overlays and citations at work", false).clicked() {
+        if card(ui, width, Icon::Spark, crate::t!("Try the sample lecture"), crate::t!("See notes, overlays and citations at work"), false).clicked() {
             if let Some(p) = ensure_sample() {
                 self.open_path(&p);
             }
@@ -99,7 +115,7 @@ impl App {
     }
 
     fn start_recent(&mut self, ui: &mut Ui, width: f32) {
-        ui.label(RichText::new("Recent files").size(17.0).family(FontFamily::Name("medium".into())).color(INK));
+        ui.label(RichText::new(crate::t!("Recent files")).size(17.0).family(FontFamily::Name("medium".into())).color(INK));
         ui.add_space(4.0);
         let recents = self.st.recent.clone();
         if recents.is_empty() {
@@ -135,7 +151,7 @@ impl App {
                 let when = if exists {
                     std::fs::metadata(p).and_then(|m| m.modified()).map(|t| age_text(t, now)).unwrap_or_default()
                 } else {
-                    "File not found".to_string()
+                    crate::t!("File not found").to_string()
                 };
                 let right = if over { 44.0 } else { 14.0 };
                 ui.painter().text(pos2(rect.right() - right, rect.center().y), Align2::RIGHT_CENTER, when, FontId::proportional(12.5), if exists { MUTED } else { BAD });
@@ -143,7 +159,7 @@ impl App {
                     let b = Rect::from_center_size(pos2(rect.right() - 24.0, rect.center().y), vec2(28.0, 28.0));
                     // A fixed name per file, so a press and its release land on the same button.
                     let mut c = ui.new_child(UiBuilder::new().max_rect(b).id_salt(("recent-remove", p)));
-                    if icons::sized_button(&mut c, Icon::Trash, false, "Remove from this list", 28.0, 15.0).clicked() {
+                    if icons::sized_button(&mut c, Icon::Trash, false, crate::t!("Remove from this list"), 28.0, 15.0).clicked() {
                         remove = Some(p.clone());
                     }
                 }
@@ -166,14 +182,14 @@ impl App {
     fn welcome(&mut self, ui: &mut Ui, width: f32) {
         Frame::new().fill(SURFACE).stroke(Stroke::new(1.0, LINE)).corner_radius(10).inner_margin(20).show(ui, |ui| {
             ui.set_width(width - 42.0);
-            ui.label(RichText::new("Welcome to TeXora").size(19.0).family(FontFamily::Name("medium".into())).color(LEAF_DARK));
+            ui.label(RichText::new(crate::t!("Welcome to TeXora")).size(19.0).family(FontFamily::Name("medium".into())).color(LEAF_DARK));
             ui.add_space(2.0);
-            ui.label(RichText::new("Your recent presentations will appear here.").color(MUTED));
+            ui.label(RichText::new(crate::t!("Your recent presentations will appear here.")).color(MUTED));
             ui.add_space(8.0);
             for (icon, t) in [
-                (Icon::Presenter, "See notes, the next slide and your time while the room sees only the slide."),
-                (Icon::Code, "Edit LaTeX beside a live preview. Slides rebuild as you type."),
-                (Icon::Chart, "Rehearse, then see where the time went on each slide."),
+                (Icon::Presenter, crate::t!("See notes, the next slide and your time while the room sees only the slide.")),
+                (Icon::Code, crate::t!("Edit LaTeX beside a live preview. Slides rebuild as you type.")),
+                (Icon::Chart, crate::t!("Rehearse, then see where the time went on each slide.")),
             ] {
                 ui.horizontal_top(|ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
@@ -314,8 +330,8 @@ impl App {
         let mut cancel = false;
         let resp = Modal::new(Id::NULL.with("template-picker")).show(ctx, |ui| {
             ui.set_width(900.0);
-            ui.label(RichText::new("New LaTeX presentation").size(20.0).family(FontFamily::Name("strong".into())).color(INK));
-            ui.label(RichText::new("Choose a style. Each template is a complete Beamer file with speaker notes, ready to edit. The animated ones show animations, GIF frames and video clips that play in TeXora.").size(13.0).color(MUTED));
+            ui.label(RichText::new(crate::t!("New LaTeX presentation")).size(20.0).family(FontFamily::Name("strong".into())).color(INK));
+            ui.label(RichText::new(crate::t!("Choose a style. Each template is a complete Beamer file with speaker notes, ready to edit. The animated ones show animations, GIF frames and video clips that play in TeXora.")).size(13.0).color(MUTED));
             ui.add_space(8.0);
             // The list scrolls when the window is too short for every template.
             let list_h = (ctx.content_rect().height() - 230.0).clamp(280.0, 660.0);
@@ -325,7 +341,7 @@ impl App {
                     ScrollArea::vertical().id_salt("template-list").max_height(list_h).auto_shrink([false, true]).show(ui, |ui| {
                         for (i, t) in crate::templates::TEMPLATES.iter().enumerate() {
                             if i == 0 || i == crate::templates::FIRST_ANIMATED {
-                                let head = if i == 0 { "Classic" } else { "Animated" };
+                                let head = if i == 0 { crate::t!("Classic") } else { crate::t!("Animated") };
                                 ui.label(RichText::new(head).size(12.5).family(FontFamily::Name("medium".into())).color(MUTED));
                                 ui.add_space(2.0);
                             }
@@ -339,9 +355,9 @@ impl App {
                                     ui.add_space(4.0);
                                     ui.vertical(|ui| {
                                         ui.spacing_mut().item_spacing.y = 2.0;
-                                        ui.label(RichText::new(t.name).size(15.0).family(FontFamily::Name("medium".into())).color(INK));
-                                        ui.label(RichText::new(t.tags).size(11.5).color(LEAF_DARK));
-                                        ui.add(Label::new(RichText::new(t.about).size(12.0).color(MUTED)).wrap());
+                                        ui.label(RichText::new(crate::t!(t.name)).size(15.0).family(FontFamily::Name("medium".into())).color(INK));
+                                        ui.label(RichText::new(crate::t!(t.tags)).size(11.5).color(LEAF_DARK));
+                                        ui.add(Label::new(RichText::new(crate::t!(t.about)).size(12.0).color(MUTED)).wrap());
                                     });
                                     img
                                 })
@@ -362,7 +378,7 @@ impl App {
                 ui.add_space(10.0);
                 ui.vertical(|ui| {
                     let t = &crate::templates::TEMPLATES[pick];
-                    ui.label(RichText::new(t.name).size(17.0).family(FontFamily::Name("strong".into())).color(INK));
+                    ui.label(RichText::new(crate::t!(t.name)).size(17.0).family(FontFamily::Name("strong".into())).color(INK));
                     ui.add_space(4.0);
                     let w = ui.available_width().min(470.0);
                     let wide = if t.tags.starts_with("4:3") { w * 0.82 } else { w };
@@ -373,13 +389,13 @@ impl App {
             });
             ui.add_space(10.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new("You choose where to save it next. Change its colours later on the \\definecolor lines at the top.").size(12.0).color(MUTED));
+                ui.label(RichText::new(crate::t!("You choose where to save it next. Change its colours later on the \\definecolor lines at the top.")).size(12.0).color(MUTED));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let label = format!("Create with {}…", crate::templates::TEMPLATES[pick].name);
+                    let label = tfill!(crate::t!("Create with {0}…"), crate::templates::TEMPLATES[pick].name);
                     if ui.add(Button::new(RichText::new(label).color(Color32::WHITE)).fill(LEAF)).clicked() {
                         create = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(crate::t!("Cancel")).clicked() {
                         cancel = true;
                     }
                 });

@@ -17,6 +17,7 @@ mod selftest;
 mod settings;
 mod syscheck;
 mod icons;
+mod i18n;
 mod tabs;
 mod templates;
 mod ui_chrome;
@@ -90,7 +91,8 @@ fn start_screenshot_limit() {
     });
 }
 
-const HELP: &str = "TeXora {version}: present PDF and LaTeX Beamer slides
+/// What `--help` prints, in English.
+const HELP_EN: &str = "TeXora {version}: present PDF and LaTeX Beamer slides
 
 Usage: TeXora [file.pdf | file.tex] [options]
 
@@ -112,6 +114,31 @@ For testing and screenshots:
                            motion, flipbook or media
 
 Full details: README.md, or ? > Documentation in the app.";
+
+/// The same help, in Chinese. The commands and their names stay as they are: they are what the
+/// reader types. Only the words that explain them change.
+const HELP_ZH: &str = "TeXora {version}：演示 PDF 与 LaTeX Beamer 幻灯片
+
+用法：TeXora [file.pdf | file.tex] [选项]
+
+  file.pdf | file.tex      打开这个演示文稿
+  --version                显示版本号并退出
+  --help, -h               显示这份列表并退出
+  --self-test[=file.png]   不打开窗口，检查这份副本能否正常工作，然后退出（0 表示通过）
+
+用于测试和截图：
+  --screenshot <file.png>  绘制约 120 帧，保存窗口的截图并退出
+  --view <name>            从以下视图启动：presenter, split, swap, overview, studio,
+                           analytics, settings, outline, search, audience, textnotes
+  --goto <n>               从第 n 页开始
+  --window <W>x<H>         以这个窗口大小启动
+  --script \"<steps>\"       输入测试操作，例如 \"w:500;k:ArrowRight\"
+  --demo                   用虚构的数字填满数据分析
+  --new <file.tex>         用 Beamer 模板新建演示文稿并打开
+  --template <name>        与 --new 一起使用：classic, midnight, minimal, conference, sunrise,
+                           motion, flipbook 或 media
+
+完整说明见 README.md，或在应用中选择 ? > 文档。";
 
 fn parse_args() -> Result<Args, String> {
     let mut a = Args { file: None, screenshot: None, view: None, goto: None, demo: false, new_deck: None, template: None, script: vec![], window: None };
@@ -140,7 +167,13 @@ fn parse_args() -> Result<Args, String> {
             }
             "--script" => a.script = it.next().unwrap_or_default().split(';').map(str::to_string).collect(),
             "--help" | "-h" => {
-                println!("{}", HELP.replace("{version}", update::VERSION));
+                // The help follows the language the interface is set to.
+                let code = crate::settings::Settings::load().language;
+                let help = match crate::i18n::Lang::from_code(&code) {
+                    crate::i18n::Lang::Chinese => HELP_ZH,
+                    crate::i18n::Lang::English => HELP_EN,
+                };
+                println!("{}", help.replace("{version}", update::VERSION));
                 std::process::exit(0);
             }
             f => a.file = Some(PathBuf::from(f)),

@@ -372,6 +372,9 @@ impl App {
         let display = displays.iter().position(|d| !d.is_primary).unwrap_or(0);
         let st = Settings::load();
         ctx.set_zoom_factor(st.ui_scale);
+        // The language of the interface, and the fonts that go with it, before anything is drawn.
+        crate::i18n::set_lang(crate::i18n::Lang::from_code(&st.language));
+        crate::ui_chrome::apply_font_locale(&ctx, crate::i18n::lang());
         // Which installed video tool (if any) plays videos that are not GIFs.
         crate::video::configure(&st.video_player, &st.ffmpeg_path, &st.vlc_path, st.video_sound);
         let mut app = App {
@@ -514,7 +517,7 @@ impl App {
         } else if wants_deck {
             match args.file.clone().or_else(ensure_sample) {
                 Some(p) => app.open_path(&p),
-                None => app.status = "Could not open that file.".to_string(),
+                None => app.status = crate::t!("Could not open that file.").to_string(),
             }
             let opened = app.view != View::Start;
             match args.view.as_deref().filter(|_| opened) {
@@ -547,7 +550,7 @@ impl App {
             let _ = self.st.save();
         }
         if !matches!(ext.as_str(), "pdf" | "tex") {
-            self.status = format!("TeXora opens .pdf and .tex files, not {}.", path.display());
+            self.status = crate::tfill!(crate::t!("TeXora opens .pdf and .tex files, not {0}."), path.display());
             return;
         }
         // Each presentation has one tab: a file already open comes to the front.
@@ -585,7 +588,7 @@ impl App {
                 if stale {
                     self.open_after_compile = true;
                     self.start_compile();
-                    self.status = "Compiling your slides…".to_string();
+                    self.status = crate::t!("Compiling your slides…").to_string();
                 } else {
                     self.load_pdf(&pdf);
                 }
@@ -691,12 +694,20 @@ impl App {
             self.run_search();
         }
         if self.deck.slides.is_empty() {
-            self.status = "This PDF has no pages.".to_string();
+            self.status = crate::t!("This PDF has no pages.").to_string();
         } else if same && self.status.is_empty() {
-            self.status = "Slides refreshed.".to_string();
-        } else if !same && !self.status.starts_with("Compiled") {
+            self.status = crate::t!("Slides refreshed.").to_string();
+        } else if !same && !self.status_is_compiled() {
             self.status.clear();
         }
+    }
+
+    /// Whether the status bar is showing what a compile that worked said.
+    ///
+    /// The words in the status bar change with the language of the interface, so the question is
+    /// asked of the compile itself: the last one worked, and the status still holds its message.
+    fn status_is_compiled(&self) -> bool {
+        self.compile_ok == Some(true) && self.status == self.compile_note
     }
 
     /// Rehearsal numbers for checking the analytics screen; only used with --demo.
@@ -740,7 +751,7 @@ impl App {
             // An existing file is rewritten too, so removing the last mark sticks.
             if used || Sidecar::path_for(p).exists() {
                 if let Err(e) = self.side.save(p) {
-                    self.status = format!("Could not save this deck's data: {e}");
+                    self.status = crate::tfill!(crate::t!("Could not save this deck's data: {0}"), e);
                 }
             }
         }
@@ -778,15 +789,16 @@ impl App {
             s.dirty = true;
             s.last_edit = Instant::now();
             let file = s.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            if self.notes.remove(&f).is_some() {
-                self.save_notes();
-            }
-            self.save_source();
+            // A save that failed leaves its own message in the status bar, and the good news about
+            // the note is not shown over it. The saves say whether they worked, so the words in the
+            // status bar do not have to be read to know.
+            let notes_ok = if self.notes.remove(&f).is_some() { self.save_notes() } else { true };
+            let source_ok = self.save_source();
             // The note shows at once; LaTeX rebuilds the slides in the background. (Set after saving,
             // since saving checks the source's notes and would take it back.)
             self.note_pending.insert(f, text);
-            if !self.status.starts_with("Could not") {
-                self.status = format!("Notes for slide {} saved in {file}, in the slide's \\note. The slides rebuild in the background.", f + 1);
+            if notes_ok && source_ok {
+                self.status = crate::tfill!(crate::t!("Notes for slide {0} saved in {1}, in the slide's \\note. The slides rebuild in the background."), f + 1, file);
                 self.start_compile();
             }
             return;
@@ -797,23 +809,29 @@ impl App {
         } else {
             self.notes.insert(f, text);
         }
-        self.save_notes();
-        if !self.status.starts_with("Could not") {
+        let notes_ok = self.save_notes();
+        if notes_ok {
             let file = self.deck_path.as_ref().and_then(|p| notes::notes_file(p).file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_default();
-            self.status = format!("Notes for slide {} saved in {file}, beside the presentation.", f + 1);
+            self.status = crate::tfill!(crate::t!("Notes for slide {0} saved in {1}, beside the presentation."), f + 1, file);
         }
     }
 
-    pub fn save_notes(&mut self) {
+    /// Saves the notes beside the presentation. It says whether they were written.
+    pub fn save_notes(&mut self) -> bool {
+        let mut saved = true;
         if let Some(p) = &self.deck_path {
             if let Err(e) = notes::save_notes(p, &self.notes) {
-                self.status = format!("Could not save notes: {e}");
+                self.status = crate::tfill!(crate::t!("Could not save notes: {0}"), e);
+                saved = false;
             }
         }
         self.notes_dirty = None;
+        saved
     }
 
-    pub fn save_source(&mut self) {
+    /// Writes the source back to its file. It says whether the file was written.
+    pub fn save_source(&mut self) -> bool {
+        let mut saved = true;
         if let Some(s) = &mut self.src {
             match std::fs::write(&s.path, &s.text) {
                 Ok(_) => {
@@ -823,9 +841,13 @@ impl App {
                     let before = std::mem::replace(&mut s.frames, notes::parse_tex_frames_with(&s.text, &s.frame_envs));
                     self.source_notes_changed(&before);
                 }
-                Err(e) => self.status = format!("Could not save: {e}"),
+                Err(e) => {
+                    self.status = crate::tfill!(crate::t!("Could not save: {0}"), e);
+                    saved = false;
+                }
             }
         }
+        saved
     }
 
     /// After the source changed (in the studio or another editor): a slide whose `\note` changed shows
@@ -849,7 +871,7 @@ impl App {
 
     pub fn start_compile(&mut self) {
         let Some(path) = self.src.as_ref().map(|s| s.path.clone()) else {
-            self.compile_note = "Open a .tex file to compile.".to_string();
+            self.compile_note = crate::t!("Open a .tex file to compile.").to_string();
             return;
         };
         if self.compiling {
@@ -857,7 +879,7 @@ impl App {
             return;
         }
         self.compiling = true;
-        self.compile_note = "Compiling…".to_string();
+        self.compile_note = crate::t!("Compiling…").to_string();
         self.compile_ok = None;
         self.check_packages();
         latex::compile_async(self.active_id(), path, self.st.engine, self.compile_tx.clone(), || {});
@@ -874,22 +896,28 @@ impl App {
         }
         if r.ok {
             let warns = self.problems.len();
-            self.compile_note = format!(
-                "Compiled with {} in {:.1}s{}",
-                r.engine.name(),
-                r.seconds,
-                match warns {
-                    0 => String::new(),
-                    1 => ", no errors, 1 warning".to_string(),
-                    w => format!(", no errors, {w} warnings"),
-                }
+            let warns_text = match warns {
+                0 => String::new(),
+                1 => crate::t!(", no errors, 1 warning").to_string(),
+                w => crate::tfill!(crate::t!(", no errors, {0} warnings"), w),
+            };
+            self.compile_note = crate::tfill!(
+                crate::t!("Compiled with {0} in {1}s{2}"),
+                r.engine.label(),
+                format!("{:.1}", r.seconds),
+                warns_text
             );
             self.status = self.compile_note.clone();
             self.open_after_compile = false;
             self.load_pdf(&r.pdf);
         } else {
             let first = self.problems.iter().find(|p| p.is_error).map(|p| p.message.clone());
-            self.compile_note = if !r.note.is_empty() { r.note } else { format!("Could not compile: {}", first.unwrap_or_else(|| "see the log".to_string())) };
+            self.compile_note = if !r.note.is_empty() {
+                r.note
+            } else {
+                let reason = first.unwrap_or_else(|| crate::t!("see the log").to_string());
+                crate::tfill!(crate::t!("Could not compile: {0}"), reason)
+            };
             self.status = self.compile_note.clone();
             if self.open_after_compile {
                 self.open_after_compile = false;
@@ -965,14 +993,15 @@ impl App {
                 Reply::Search { gen, query, hits } if gen == self.gen && query == self.search_sent => self.hits = hits,
                 Reply::Failed { gen, msg } => {
                     let id = if gen == self.gen { Some(self.active_id()) } else { self.tab_of_gen(gen) };
-                    let text = friendly_open_error(&msg);
+                    // The English text is the key, so the message the reader sees is in their language.
+                    let text = crate::t!(friendly_open_error(&msg));
                     if let Some(id) = id {
                         self.with_tab(id, |a| {
                             a.loading = false;
                             if a.doc.is_none() && a.src.is_none() {
-                                a.failed_open = Some((id, text));
+                                a.failed_open = Some((id, text.to_string()));
                             } else {
-                                a.status = text;
+                                a.status = text.to_string();
                             }
                         });
                     }
@@ -1181,13 +1210,13 @@ impl App {
         match &clip.file {
             Some(f) if self.shot.is_none() => {
                 if let Err(e) = crate::media::open_with_system(f) {
-                    self.status = format!("Could not open {}: {e}", clip.name);
+                    self.status = crate::tfill!(crate::t!("Could not open {0}: {1}"), clip.name, e);
                 } else {
-                    self.status = format!("{} is playing in your video player.", clip.name);
+                    self.status = crate::tfill!(crate::t!("{0} is playing in your video player."), clip.name);
                 }
             }
-            Some(_) => self.status = format!("Would play {}.", clip.name),
-            None => self.status = format!("The clip {} was not found. Keep it in the same folder as the presentation.", clip.name),
+            Some(_) => self.status = crate::tfill!(crate::t!("Would play {0}."), clip.name),
+            None => self.status = crate::tfill!(crate::t!("The clip {0} was not found. Keep it in the same folder as the presentation."), clip.name),
         }
     }
 
@@ -1343,7 +1372,7 @@ impl App {
     /// Web links only; anything else in a PDF link is ignored.
     pub fn open_external(&mut self, url: &str) {
         if !(url.starts_with("http://") || url.starts_with("https://")) {
-            self.status = "That link is not a web address, so it was not opened.".to_string();
+            self.status = crate::t!("That link is not a web address, so it was not opened.").to_string();
             return;
         }
         #[cfg(target_os = "macos")]
@@ -1353,7 +1382,7 @@ impl App {
         #[cfg(all(unix, not(target_os = "macos")))]
         let r = std::process::Command::new("xdg-open").arg(url).spawn();
         if r.is_err() {
-            self.status = format!("Could not open {url}");
+            self.status = crate::tfill!(crate::t!("Could not open {0}"), url);
         }
     }
 
@@ -1419,7 +1448,7 @@ impl App {
                     s.synced_line = line;
                 }
             }
-            None => self.status = "No source position here. Compile from TeXora so it can link slides to source.".to_string(),
+            None => self.status = crate::t!("No source position here. Compile from TeXora so it can link slides to source.").to_string(),
         }
     }
 
@@ -1478,6 +1507,20 @@ impl App {
         }
     }
 
+    /// Sets the language of the interface. It takes effect at once: the interface is drawn again
+    /// every frame, and every string is looked up as it is drawn.
+    pub fn set_language(&mut self, ctx: &Context, lang: crate::i18n::Lang) {
+        if self.st.language == lang.code() {
+            return;
+        }
+        self.st.language = lang.code().to_string();
+        self.save_layout();
+        crate::i18n::set_lang(lang);
+        // The computer's fonts are asked for the language that is in use now.
+        crate::ui_chrome::apply_font_locale(ctx, lang);
+        self.status = crate::t!("Language changed.").to_string();
+    }
+
     pub fn go_to_slide(&mut self, text: &str) {
         let total = self.deck.frames.len();
         match text.trim().parse::<usize>() {
@@ -1485,7 +1528,7 @@ impl App {
                 let t = self.deck.frames[n - 1].first;
                 self.jump(t);
             }
-            _ => self.status = format!("Enter a slide number from 1 to {total}."),
+            _ => self.status = crate::tfill!(crate::t!("Enter a slide number from 1 to {0}."), total),
         }
     }
 
@@ -1595,7 +1638,7 @@ impl App {
 
     /// Asks where to save, then creates the presentation from template `t`.
     pub fn save_new_presentation(&mut self, t: usize) {
-        let dialog = rfd::FileDialog::new().add_filter("LaTeX source", &["tex"]).set_file_name("presentation.tex");
+        let dialog = rfd::FileDialog::new().add_filter(crate::t!("LaTeX source"), &["tex"]).set_file_name("presentation.tex");
         if let Some(p) = dialog.save_file() {
             self.create_presentation(&p, t);
         }
@@ -1615,10 +1658,10 @@ impl App {
                 self.open_path(&path);
                 self.view = View::Studio;
                 if !failed.is_empty() {
-                    self.status = format!("Could not save {} beside the presentation.", failed.join(", "));
+                    self.status = crate::tfill!(crate::t!("Could not save {0} beside the presentation."), failed.join(", "));
                 }
             }
-            Err(e) => self.status = format!("Could not create that file: {e}"),
+            Err(e) => self.status = crate::tfill!(crate::t!("Could not create that file: {0}"), e),
         }
     }
 
@@ -1708,7 +1751,7 @@ impl App {
                     self.audience_full = false;
                     self.start_timer();
                     if self.displays.len() < 2 {
-                        self.status = "One display found. Press F11 for fullscreen slides.".to_string();
+                        self.status = crate::t!("One display found. Press F11 for fullscreen slides.").to_string();
                     }
                 }
             }
@@ -1789,7 +1832,7 @@ impl App {
             Undo => self.undo_ink(),
             ClearInk => self.clear_ink(),
             MarkQuestion => self.toggle_question(),
-            Open => self.open_dialog("Slides", &["pdf", "tex"]),
+            Open => self.open_dialog(crate::t!("Slides"), &["pdf", "tex"]),
             Save => {
                 self.save_source();
                 if self.st.auto_compile {
@@ -1875,7 +1918,7 @@ impl App {
             }
             let bind = KeyBind { key: key.name().to_string(), cmd: m.command, shift: m.shift, alt: m.alt };
             if let Some(other) = self.st.conflict(&bind, action) {
-                self.status = format!("{} was used by \"{}\", which now has no such key.", bind.text(), other.label());
+                self.status = crate::tfill!(crate::t!("{0} was used by \"{1}\", which now has no such key."), bind.text(), other.label());
                 for (a, ks) in self.st.keys.iter_mut() {
                     if *a == other {
                         ks.retain(|x| *x != bind);
@@ -2142,15 +2185,16 @@ impl App {
     }
 }
 
-/// What to tell someone when a PDF will not open.
-pub fn friendly_open_error(detail: &str) -> String {
+/// What to tell someone when a PDF will not open. The English text is the key of the message, so
+/// the caller can show it in the language of the interface.
+pub fn friendly_open_error(detail: &str) -> &'static str {
     let d = detail.to_lowercase();
     if d.contains("password") {
-        "That PDF is protected by a password, which TeXora cannot open yet.".to_string()
+        "That PDF is protected by a password, which TeXora cannot open yet."
     } else if d.contains("no such file") || d.contains("not found") {
-        "That file could not be found. It may have been moved or renamed.".to_string()
+        "That file could not be found. It may have been moved or renamed."
     } else {
-        "That file could not be opened. It may be damaged, or not really a PDF.".to_string()
+        "That file could not be opened. It may be damaged, or not really a PDF."
     }
 }
 

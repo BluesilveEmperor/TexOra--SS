@@ -62,7 +62,9 @@ pub fn parse_md(src: &str) -> Notes {
 }
 
 pub fn to_md(notes: &Notes) -> String {
-    let mut s = String::from("# Speaker notes (TeXora)\n\n");
+    // The title of the file is the only text TeXora writes there; the headings under it are the
+    // format of the file and stay as they are.
+    let mut s = format!("# {}\n\n", crate::t!("Speaker notes (TeXora)"));
     for (k, v) in notes.iter().filter(|(_, v)| !v.trim().is_empty()) {
         s.push_str(&format!("## Slide {}\n{}\n\n", k + 1, v.trim()));
     }

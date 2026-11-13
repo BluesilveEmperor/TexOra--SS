@@ -3,6 +3,22 @@
 //! icons and short guide.
 use crate::cli::Os;
 
+/// A translated text with its {0}, {1}… placeholders filled in, in the order they are given.
+///
+/// `format!` wants its format string to be a literal, but a translated one is only known when the
+/// program runs, so the placeholders are put in by hand: the text first, the values after it.
+macro_rules! tfill {
+    ($text:expr $(, $arg:expr)* $(,)?) => {{
+        let mut text = String::from($text);
+        let args: Vec<String> = vec![$(format!("{}", $arg)),*];
+        for (i, arg) in args.iter().enumerate() {
+            let key = format!("{{{i}}}");
+            text = text.replace(key.as_str(), arg);
+        }
+        text
+    }};
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Status {
     /// Present and working.
@@ -48,58 +64,58 @@ pub fn engine_file(os: Os) -> &'static str {
 pub fn engine_problem(os: Os, raw: &str) -> String {
     let r = raw.to_lowercase();
     if r.contains("no such file") || r.contains("not found") || r.contains("loadlibrary") || r.contains("cannot open") {
-        format!("Its file, {}, is missing from beside the TeXora program", engine_file(os))
+        tfill!(crate::t!("Its file, {0}, is missing from beside the TeXora program"), engine_file(os))
     } else {
         let first = raw.lines().next().unwrap_or("").trim();
-        format!("It could not start: {}", first.chars().take(120).collect::<String>())
+        tfill!(crate::t!("It could not start: {0}"), first.chars().take(120).collect::<String>())
     }
 }
 
 /// How to install LaTeX on this kind of system.
 pub fn tex_install_hint(os: Os) -> &'static str {
     match os {
-        Os::Mac => "Install MacTeX from https://tug.org/mactex (or BasicTeX for a smaller download).",
-        Os::Windows => "Install MiKTeX from https://miktex.org, or TeX Live from https://tug.org/texlive.",
-        Os::Linux => "Install TeX Live from your package manager, for example: sudo apt install texlive-latex-extra (Ubuntu, Debian) or sudo dnf install texlive-scheme-medium (Fedora).",
+        Os::Mac => crate::t!("Install MacTeX from https://tug.org/mactex (or BasicTeX for a smaller download)."),
+        Os::Windows => crate::t!("Install MiKTeX from https://miktex.org, or TeX Live from https://tug.org/texlive."),
+        Os::Linux => crate::t!("Install TeX Live from your package manager, for example: sudo apt install texlive-latex-extra (Ubuntu, Debian) or sudo dnf install texlive-scheme-medium (Fedora)."),
     }
 }
 
 pub fn checks(f: &Facts) -> Vec<Check> {
     let mut out = vec![];
     out.push(Check {
-        name: "TeXora and its PDF engine",
+        name: crate::t!("TeXora and its PDF engine"),
         status: if f.pdf_engine_error.is_some() { Status::Problem } else { Status::Ready },
         found: match &f.pdf_engine_error {
-            None => "Included in TeXora and working".to_string(),
+            None => crate::t!("Included in TeXora and working").to_string(),
             Some(e) => engine_problem(f.os, e),
         },
-        used_for: "Showing every presentation",
+        used_for: crate::t!("Showing every presentation"),
         how: f.pdf_engine_error.as_ref().map(|_| {
-            format!("Download TeXora again and keep its files together: {} must stay beside the TeXora program.", engine_file(f.os))
+            tfill!(crate::t!("Download TeXora again and keep its files together: {0} must stay beside the TeXora program."), engine_file(f.os))
         }),
     });
     let engines: Vec<&str> = f.tex_tools.iter().filter(|(n, ok)| *ok && *n != "synctex").map(|(n, _)| *n).collect();
     out.push(Check {
         name: "LaTeX",
         status: if engines.is_empty() { Status::Optional } else { Status::Ready },
-        found: if engines.is_empty() { "Not found".to_string() } else { format!("Found: {}", engines.join(", ")) },
-        used_for: "Compiling .tex files in the LaTeX studio. PDF presentations do not need it.",
+        found: if engines.is_empty() { crate::t!("Not found").to_string() } else { tfill!(crate::t!("Found: {0}"), engines.join(", ")) },
+        used_for: crate::t!("Compiling .tex files in the LaTeX studio. PDF presentations do not need it."),
         how: engines.is_empty().then(|| tex_install_hint(f.os).to_string()),
     });
     out.push(Check {
-        name: "Web browser",
+        name: crate::t!("Web browser"),
         status: Status::Info,
-        found: "Your default browser".to_string(),
-        used_for: "The website and update downloads",
+        found: crate::t!("Your default browser").to_string(),
+        used_for: crate::t!("The website and update downloads"),
         how: None,
     });
     let synctex = f.tex_tools.iter().any(|(n, ok)| *n == "synctex" && *ok);
     out.push(Check {
         name: "SyncTeX",
         status: if synctex { Status::Ready } else { Status::Optional },
-        found: if synctex { "Found".to_string() } else { "Not found".to_string() },
-        used_for: "Jumping between a slide and its source in the studio",
-        how: (!synctex).then(|| "It comes with TeX Live, MacTeX and MiKTeX.".to_string()),
+        found: if synctex { crate::t!("Found").to_string() } else { crate::t!("Not found").to_string() },
+        used_for: crate::t!("Jumping between a slide and its source in the studio"),
+        how: (!synctex).then(|| crate::t!("It comes with TeX Live, MacTeX and MiKTeX.").to_string()),
     });
     out
 }
@@ -119,7 +135,7 @@ mod tests {
         let tex = c.iter().find(|c| c.name == "LaTeX").unwrap();
         assert_eq!(tex.status, Status::Optional);
         assert!(tex.how.as_ref().unwrap().contains("miktex.org"));
-        assert!(tex.used_for.contains("PDF presentations do not need it"));
+        assert_eq!(tex.used_for, crate::t!("Compiling .tex files in the LaTeX studio. PDF presentations do not need it."));
     }
 
     #[test]
@@ -137,9 +153,9 @@ mod tests {
         let c = checks(&f);
         assert_eq!(c[0].status, Status::Problem);
         let raw = "PDF engine not found: LoadLibraryError(\n DlOpen { source: \"dlopen(libpdfium.dylib): (no such file)\" })";
-        assert_eq!(engine_problem(Os::Mac, raw), "Its file, libpdfium.dylib, is missing from beside the TeXora program");
+        assert_eq!(engine_problem(Os::Mac, raw), tfill!(crate::t!("Its file, {0}, is missing from beside the TeXora program"), "libpdfium.dylib"));
         let tex = c.iter().find(|c| c.name == "LaTeX").unwrap();
-        assert_eq!(tex.found, "Found: pdflatex, xelatex");
+        assert_eq!(tex.found, tfill!(crate::t!("Found: {0}"), "pdflatex, xelatex"));
         assert!(tex.how.is_none());
     }
 }

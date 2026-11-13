@@ -23,6 +23,13 @@ impl Engine {
             Engine::LuaLatex => "LuaLaTeX",
         }
     }
+    /// The name as the interface shows it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Engine::Auto => crate::t!("Auto"),
+            _ => self.name(),
+        }
+    }
     fn program(self) -> &'static str {
         match self {
             Engine::Auto | Engine::PdfLatex => "pdflatex",
@@ -157,7 +164,7 @@ fn run_with_timeout(mut cmd: Command, limit: Duration) -> Result<bool, String> {
             Some(s) => return Ok(s.success()),
             None if start.elapsed() > limit => {
                 let _ = child.kill();
-                return Err(format!("stopped after {} seconds", limit.as_secs()));
+                return Err(crate::tfill!(crate::t!("stopped after {0} seconds"), limit.as_secs()));
             }
             None => std::thread::sleep(Duration::from_millis(40)),
         }
@@ -182,7 +189,7 @@ pub fn compile(tex: &Path, engine: Engine) -> CompileResult {
             log: String::new(),
             seconds: 0.0,
             engine,
-            note: format!("{} is not installed, so .tex files cannot be compiled. PDFs still work. {}", engine.name(), crate::syscheck::tex_install_hint(crate::cli::Os::current())),
+            note: crate::tfill!(crate::t!("{0} is not installed, so .tex files cannot be compiled. PDFs still work. {1}"), engine.label(), crate::syscheck::tex_install_hint(crate::cli::Os::current())),
         };
     };
     let file = root.file_name().unwrap().to_owned();
@@ -339,12 +346,12 @@ pub enum ReqKind {
 impl ReqKind {
     pub fn label(self) -> &'static str {
         match self {
-            ReqKind::Class => "Document class",
-            ReqKind::Package => "Package",
-            ReqKind::Theme => "Beamer theme",
-            ReqKind::TikzLibrary => "TikZ library",
-            ReqKind::File => "File",
-            ReqKind::Tool => "Program",
+            ReqKind::Class => crate::t!("Document class"),
+            ReqKind::Package => crate::t!("Package"),
+            ReqKind::Theme => crate::t!("Beamer theme"),
+            ReqKind::TikzLibrary => crate::t!("TikZ library"),
+            ReqKind::File => crate::t!("File"),
+            ReqKind::Tool => crate::t!("Program"),
         }
     }
 }
@@ -432,7 +439,7 @@ pub fn requirements(src: &str, engine: Engine) -> Vec<Requirement> {
     ] {
         for (list, _) in commands(&clean, cmd) {
             for t in list.split(',').map(str::trim) {
-                add(ReqKind::Theme, t, vec![format!("{prefix}{t}.sty")], "Check the theme name, or install the package that provides it.".to_string());
+                add(ReqKind::Theme, t, vec![format!("{prefix}{t}.sty")], crate::t!("Check the theme name, or install the package that provides it.").to_string());
             }
         }
     }
@@ -444,7 +451,7 @@ pub fn requirements(src: &str, engine: Engine) -> Vec<Requirement> {
                     format!("pgflibrary{l}.code.tex"),
                     format!("pgfplotslibrary{l}.code.tex"),
                 ];
-                add(ReqKind::TikzLibrary, l, c, "Update pgf, or check the library name.".to_string());
+                add(ReqKind::TikzLibrary, l, c, crate::t!("Update pgf, or check the library name.").to_string());
             }
         }
     }
@@ -454,23 +461,23 @@ pub fn requirements(src: &str, engine: Engine) -> Vec<Requirement> {
         v
     };
     for (f, _) in commands(&clean, "\\includegraphics") {
-        add(ReqKind::File, f, exts(f, &["pdf", "png", "jpg", "jpeg", "eps"]), "Check the file name and folder.".to_string());
+        add(ReqKind::File, f, exts(f, &["pdf", "png", "jpg", "jpeg", "eps"]), crate::t!("Check the file name and folder.").to_string());
     }
     for u in crate::video_prep::uses_in(&clean, std::path::Path::new("")) {
-        add(ReqKind::File, &u.path, vec![u.path.clone()], "Put the video in the .tex file's folder, or in a folder inside it written in the name ({videos/clip.mp4}).".to_string());
+        add(ReqKind::File, &u.path, vec![u.path.clone()], crate::t!("Put the video in the .tex file's folder, or in a folder inside it written in the name ({videos/clip.mp4}).").to_string());
     }
     for cmd in ["\\input", "\\include"] {
         for (f, _) in commands(&clean, cmd) {
-            add(ReqKind::File, f, exts(f, &["tex"]), "Check the file name and folder.".to_string());
+            add(ReqKind::File, f, exts(f, &["tex"]), crate::t!("Check the file name and folder.").to_string());
         }
     }
     for (list, _) in commands(&clean, "\\bibliography") {
         for f in list.split(',').map(str::trim) {
-            add(ReqKind::File, f, exts(f, &["bib"]), "Check the bibliography file name.".to_string());
+            add(ReqKind::File, f, exts(f, &["bib"]), crate::t!("Check the bibliography file name.").to_string());
         }
     }
     for (f, _) in commands(&clean, "\\addbibresource") {
-        add(ReqKind::File, f, vec![f.to_string()], "Check the bibliography file name.".to_string());
+        add(ReqKind::File, f, vec![f.to_string()], crate::t!("Check the bibliography file name.").to_string());
     }
     let engine = if engine == Engine::Auto { detect_engine(src) } else { engine };
     add(ReqKind::Tool, engine.program(), vec![engine.program().to_string()], crate::syscheck::tex_install_hint(crate::cli::Os::current()).to_string());
@@ -479,7 +486,7 @@ pub fn requirements(src: &str, engine: Engine) -> Vec<Requirement> {
     } else if clean.contains("\\bibliography{") {
         add(ReqKind::Tool, "bibtex", vec!["bibtex".to_string()], crate::syscheck::tex_install_hint(crate::cli::Os::current()).to_string());
     }
-    add(ReqKind::Tool, "synctex", vec!["synctex".to_string()], "Needed to jump between source and slides.".to_string());
+    add(ReqKind::Tool, "synctex", vec!["synctex".to_string()], crate::t!("Needed to jump between source and slides.").to_string());
     out
 }
 
@@ -520,8 +527,8 @@ pub fn check_requirements(src: &str, engine: Engine, dir: &Path) -> (Vec<Require
     let chosen = if engine == Engine::Auto { detect_engine(src) } else { engine };
     let clean = uncomment(src);
     let warn = (chosen == Engine::PdfLatex && (clean.contains("{fontspec}") || clean.contains("{polyglossia}")))
-        .then(|| "fontspec and polyglossia need XeLaTeX or LuaLaTeX. Change the engine to compile.".to_string())
-        .or_else(|| kpse.is_none().then(|| "TeX is not installed, so packages could not be checked.".to_string()));
+        .then(|| crate::t!("fontspec and polyglossia need XeLaTeX or LuaLaTeX. Change the engine to compile.").to_string())
+        .or_else(|| kpse.is_none().then(|| crate::t!("TeX is not installed, so packages could not be checked.").to_string()));
     (reqs, warn)
 }
 

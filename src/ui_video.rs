@@ -5,6 +5,23 @@
 //! frame to the screen as an ordinary texture. A click plays or pauses, and showing another slide stops
 //! the player and its ffmpeg (overlay steps of the same slide keep it going). With VLC instead of
 //! ffmpeg, a click opens the clip in VLC's own window.
+
+/// A translated text with its {0}, {1}… placeholders filled in, in the order they are given.
+///
+/// `format!` wants its format string to be a literal, but a translated one is only known when the
+/// program runs, so the placeholders are put in by hand: the text first, the values after it.
+macro_rules! tfill {
+    ($text:expr $(, $arg:expr)* $(,)?) => {{
+        let mut text = String::from($text);
+        let args: Vec<String> = vec![$(format!("{}", $arg)),*];
+        for (i, arg) in args.iter().enumerate() {
+            let key = format!("{{{i}}}");
+            text = text.replace(key.as_str(), arg);
+        }
+        text
+    }};
+}
+
 use crate::video::{self, Frame};
 use egui::{Color32, Context, Rect, TextureHandle};
 use std::path::PathBuf;
@@ -295,17 +312,17 @@ pub fn install_buttons(ui: &mut egui::Ui) -> Option<String> {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 4.0;
         ui.horizontal(|ui| {
-            if ui.small_button("Get VLC").on_hover_text(VLC_PAGE).clicked() {
+            if ui.small_button(crate::t!("Get VLC")).on_hover_text(VLC_PAGE).clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(VLC_PAGE));
             }
-            if ui.small_button("Get ffmpeg").on_hover_text(FFMPEG_PAGE).clicked() {
+            if ui.small_button(crate::t!("Get ffmpeg")).on_hover_text(FFMPEG_PAGE).clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(FFMPEG_PAGE));
             }
         });
         if let Some(cmd) = install_command() {
-            if ui.small_button("Copy install command").on_hover_text(cmd).clicked() {
+            if ui.small_button(crate::t!("Copy install command")).on_hover_text(cmd).clicked() {
                 ui.ctx().copy_text(cmd.to_string());
-                said = Some(format!("Copied \"{cmd}\". Paste it into Terminal and run it yourself; TeXora never runs it."));
+                said = Some(tfill!(crate::t!("Copied \"{0}\". Paste it into Terminal and run it yourself; TeXora never runs it."), cmd));
             }
         }
     });
@@ -395,12 +412,12 @@ impl App {
         if let (Some(file), video::Backend::Vlc(vlc)) = (&v.file, video::backend()) {
             if !video::is_gif_file(file) {
                 self.status = if self.is_screenshot() {
-                    format!("Would play {} in VLC.", v.link.path)
+                    tfill!(crate::t!("Would play {0} in VLC."), v.link.path)
                 } else {
                     let silent = v.link.mute || !video::tools().sound;
                     match video::open_in_vlc(&vlc, file, v.link.repeat, silent) {
-                        Ok(()) => format!("{} is playing in VLC.", v.link.path),
-                        Err(e) => format!("VLC could not be started: {e}"),
+                        Ok(()) => tfill!(crate::t!("{0} is playing in VLC."), v.link.path),
+                        Err(e) => tfill!(crate::t!("VLC could not be started: {0}"), e),
                     }
                 };
                 return;
@@ -450,10 +467,10 @@ impl App {
     pub fn video_settings(&mut self, ui: &mut egui::Ui) {
         use crate::app::{LEAF_DARK, MUTED};
         use egui::RichText;
-        ui.label(RichText::new("GIFs play by themselves. MP4 and other videos play through VLC or ffmpeg installed on your computer: ffmpeg plays them inside the slide, VLC in its own window. TeXora contains no video decoder and never installs one.").size(12.5));
+        ui.label(RichText::new(crate::t!("GIFs play by themselves. MP4 and other videos play through VLC or ffmpeg installed on your computer: ffmpeg plays them inside the slide, VLC in its own window. TeXora contains no video decoder and never installs one.")).size(12.5));
         let mut changed = false;
         ui.horizontal(|ui| {
-            ui.label("Video player");
+            ui.label(crate::t!("Video player"));
             let now = video::Choice::from_setting(&self.st.video_player);
             egui::ComboBox::from_id_salt("video-player").selected_text(now.label()).show_ui(ui, |ui| {
                 for c in video::Choice::ALL {
@@ -474,25 +491,25 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(name).strong());
                 let state = match &program {
-                    Some(_) if text.trim().is_empty() => "found",
-                    Some(_) => "set by you",
-                    None => "not found",
+                    Some(_) if text.trim().is_empty() => crate::t!("found"),
+                    Some(_) => crate::t!("set by you"),
+                    None => crate::t!("not found"),
                 };
                 ui.label(RichText::new(state).size(12.0).color(MUTED));
-                if ui.small_button("Test").clicked() {
+                if ui.small_button(crate::t!("Test")).clicked() {
                     let said = match &program {
                         Some(p) => match video::test_tool(p, vlc) {
-                            Ok(v) => format!("{name} works: {v}"),
-                            Err(e) => format!("{name} did not work: {e}"),
+                            Ok(v) => tfill!(crate::t!("{0} works: {1}"), name, v),
+                            Err(e) => tfill!(crate::t!("{0} did not work: {1}"), name, e),
                         },
-                        None => format!("{name} was not found on this computer."),
+                        None => tfill!(crate::t!("{0} was not found on this computer."), name),
                     };
                     ui.ctx().data_mut(|d| d.insert_temp(test_id, said));
                 }
             });
             let hint = match auto {
                 Some(p) => p.display().to_string(),
-                None => "Path to the program (leave empty to look for it)".to_string(),
+                None => crate::t!("Path to the program (leave empty to look for it)").to_string(),
             };
             if ui.add(egui::TextEdit::singleline(text).hint_text(hint).desired_width(f32::INFINITY)).lost_focus() {
                 changed = true;
@@ -502,23 +519,23 @@ impl App {
             ui.label(RichText::new(said).size(12.5).color(LEAF_DARK));
         }
         let using = match video::backend() {
-            video::Backend::Ffmpeg(p) => format!("Videos play inside the slide through ffmpeg ({}).", p.display()),
-            video::Backend::Vlc(p) => format!("Videos open in VLC ({}). Install ffmpeg to play them inside the slide and to make their posters.", p.display()),
-            video::Backend::Off => "Video playing is off. GIFs still play.".to_string(),
-            video::Backend::None => video::NEEDS_PLAYER.to_string(),
+            video::Backend::Ffmpeg(p) => tfill!(crate::t!("Videos play inside the slide through ffmpeg ({0})."), p.display()),
+            video::Backend::Vlc(p) => tfill!(crate::t!("Videos open in VLC ({0}). Install ffmpeg to play them inside the slide and to make their posters."), p.display()),
+            video::Backend::Off => crate::t!("Video playing is off. GIFs still play.").to_string(),
+            video::Backend::None => video::needs_player_text().to_string(),
         };
         ui.label(RichText::new(using).size(12.5).color(LEAF_DARK));
         ui.add_space(4.0);
-        if ui.checkbox(&mut self.st.video_sound, "Play sound").on_hover_text("Videos play their sound too. A clip with the mute option stays silent.").changed() {
+        if ui.checkbox(&mut self.st.video_sound, crate::t!("Play sound")).on_hover_text(crate::t!("Videos play their sound too. A clip with the mute option stays silent.")).changed() {
             changed = true;
         }
         let vlc = matches!(video::backend(), video::Backend::Vlc(_));
         let sound_note = match (&found.ffplay, self.st.video_sound) {
-            (_, false) => "Videos play without sound.".to_string(),
+            (_, false) => crate::t!("Videos play without sound.").to_string(),
             // VLC plays both the picture and the sound in its own window; ffplay is not needed.
-            (_, true) if vlc => "Sound plays in VLC, with the picture, in VLC's own window.".to_string(),
-            (Some(p), true) => format!("Sound plays through ffplay ({}), which comes with ffmpeg.", p.display()),
-            (None, true) => "No sound inside the slide: ffplay, which comes with ffmpeg, was not found. Install ffmpeg, or choose VLC, which plays sound in its own window.".to_string(),
+            (_, true) if vlc => crate::t!("Sound plays in VLC, with the picture, in VLC's own window.").to_string(),
+            (Some(p), true) => tfill!(crate::t!("Sound plays through ffplay ({0}), which comes with ffmpeg."), p.display()),
+            (None, true) => crate::t!("No sound inside the slide: ffplay, which comes with ffmpeg, was not found. Install ffmpeg, or choose VLC, which plays sound in its own window.").to_string(),
         };
         ui.label(RichText::new(sound_note).size(12.5).color(MUTED));
         if matches!(video::backend(), video::Backend::None) || found.ffmpeg.is_none() {
@@ -537,7 +554,7 @@ impl App {
     pub fn video_help(&mut self, ui: &mut egui::Ui, rect: Rect, idx: usize, uv: Rect) {
         let Some(s) = self.deck.slides.get(idx).cloned() else { return };
         for (i, (v, r)) in self.video_rects(rect, s.page, s.region, uv).into_iter().enumerate() {
-            if v.problem.as_deref() != Some(video::NEEDS_PLAYER) || r.height() <= 60.0 {
+            if v.problem.as_deref() != Some(video::needs_player_text()) || r.height() <= 60.0 {
                 continue;
             }
             // Two rows, so the buttons wrap on a small clip instead of being cut off.
@@ -573,7 +590,7 @@ impl App {
             let problem = v.problem.clone().or_else(|| state.as_ref().and_then(|x| x.3.clone()));
             if let Some(msg) = problem {
                 // Room below the words for the install buttons (see `video_help`).
-                let room = msg == video::NEEDS_PLAYER && r.height() > 60.0;
+                let room = msg == video::needs_player_text() && r.height() > 60.0;
                 message(&painter, r, &msg, room);
                 continue;
             }

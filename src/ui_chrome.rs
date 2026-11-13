@@ -2,12 +2,40 @@
 use crate::app::*;
 use crate::deck::NotesMode;
 use crate::icons::{self, icon_button, logo, sized_button, Icon};
+use crate::i18n::Lang;
 use crate::settings::Action;
 use crate::ui_present::{markdown, sid};
 use crate::update;
 use egui::*;
 
-const ABOUT_TEXT: &str = include_str!("../assets/about.md");
+/// A translated text with its {0}, {1}… placeholders filled in, in the order they are given.
+///
+/// `format!` wants its format string to be a literal, but a translated one is only known when the
+/// program runs, so the placeholders are put in by hand: the text first, the values after it.
+macro_rules! tfill {
+    ($text:expr $(, $arg:expr)* $(,)?) => {{
+        let mut text = String::from($text);
+        let args: Vec<String> = vec![$(format!("{}", $arg)),*];
+        for (i, arg) in args.iter().enumerate() {
+            let key = format!("{{{i}}}");
+            text = text.replace(key.as_str(), arg);
+        }
+        text
+    }};
+}
+
+/// Asks the operating system for the fonts of this language. The interface draws with Inter, which
+/// has no Chinese in it, so Chinese text comes from the computer's own fonts. Which ones depends
+/// on the language: Han characters exist in Japanese and Chinese fonts alike, and the two draw
+/// some of them differently.
+pub fn apply_font_locale(ctx: &Context, lang: Lang) {
+    let provider = egui_system_font_provider::SystemFontProvider::new();
+    let provider = match lang.font_locale() {
+        Some(locale) => provider.with_locale(Some(locale)),
+        None => provider,
+    };
+    ctx.set_font_providers(vec![std::sync::Arc::new(provider)]);
+}
 
 pub fn apply_theme(ctx: &Context) {
     let mut fonts = FontDefinitions::default();
@@ -122,14 +150,14 @@ impl App {
                         });
                     });
                 } else {
-                    ui.menu_button("Menu", |ui| self.menus(ui));
+                    ui.menu_button(crate::t!("Menu"), |ui| self.menus(ui));
                 }
                 ui.add_space(8.0);
 
                 // Room left for the tabs: the buttons on the right and the version at the end.
                 let room = (ui.available_width() - 8.0 * 32.0 - 100.0).max(120.0);
                 self.tab_strip(ui, room);
-                if sized_button(ui, Icon::Plus, false, "Go to Home", 28.0, 14.0).clicked() {
+                if sized_button(ui, Icon::Plus, false, crate::t!("Go to Home"), 28.0, 14.0).clicked() {
                     self.go_home();
                 }
 
@@ -137,7 +165,7 @@ impl App {
                     ui.spacing_mut().item_spacing.x = 1.0;
                     // The version, at the right end of the title row; a click opens About.
                     let version = Label::new(RichText::new(format!("v{}", crate::update::VERSION)).size(12.5).color(MUTED)).sense(Sense::click());
-                    if ui.add(version).on_hover_cursor(CursorIcon::PointingHand).on_hover_text("About this version").clicked() {
+                    if ui.add(version).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(crate::t!("About this version")).clicked() {
                         self.about_open = true;
                     }
                     ui.add_space(6.0);
@@ -185,7 +213,7 @@ impl App {
             ui.painter().text(pos2(rect.left() + 30.0, cell.center().y), Align2::LEFT_CENTER, shown, FontId::proportional(13.5), color);
             let button = Rect::from_center_size(pos2(rect.right() - 15.0, cell.center().y), Vec2::splat(22.0));
             let mut slot = ui.new_child(UiBuilder::new().max_rect(button));
-            let tip = if self.closing_ends_app(id) { "Close TeXora" } else { "Close tab" };
+            let tip = if self.closing_ends_app(id) { crate::t!("Close TeXora") } else { crate::t!("Close tab") };
             if sized_button(&mut slot, Icon::Close, false, tip, 22.0, 11.0).clicked() {
                 self.close_request = Some(id);
                 ui.ctx().request_repaint();
@@ -239,7 +267,7 @@ impl App {
                         if w > 960.0 {
                             self.ink_group(ui);
                         } else {
-                            ui.menu_button("Ink", |ui| {
+                            ui.menu_button(crate::t!("Ink"), |ui| {
                                 ui.horizontal(|ui| self.ink_group(ui));
                             });
                         }
@@ -278,7 +306,7 @@ impl App {
             Some(update::Outcome::Available { version, .. }) => Some(version.clone()),
             _ => None,
         };
-        let tip = if newer.is_some() { "Help: an update is available" } else { "Help" };
+        let tip = if newer.is_some() { crate::t!("Help: an update is available") } else { crate::t!("Help") };
         let resp = icon_button(ui, Icon::Help, self.about_open || self.left == Some(LeftTab::Docs), tip);
         if newer.is_some() {
             ui.painter().circle_filled(resp.rect.right_top() + vec2(-8.0, 8.0), 4.5, LEAF);
@@ -286,35 +314,35 @@ impl App {
         Popup::menu(&resp).show(|ui| {
             ui.set_min_width(190.0);
             if let Some(v) = &newer {
-                if ui.button(RichText::new(format!("Update available: {v}")).color(LEAF_DARK)).clicked() {
+                if ui.button(RichText::new(tfill!(crate::t!("Update available: {0}"), v)).color(LEAF_DARK)).clicked() {
                     self.update_result = self.update_notice.clone();
                     self.update_open = true;
                     ui.close();
                 }
             }
-            if ui.button("Check for updates…").clicked() {
+            if ui.button(crate::t!("Check for updates…")).clicked() {
                 let c = ui.ctx().clone();
                 self.check_updates(&c);
                 ui.close();
             }
-            if ui.button("Documentation").clicked() {
+            if ui.button(crate::t!("Documentation")).clicked() {
                 self.left = Some(LeftTab::Docs);
                 ui.close();
             }
-            if ui.button("System check").on_hover_text("What this computer has for TeXora, and what is optional").clicked() {
+            if ui.button(crate::t!("System check")).on_hover_text(crate::t!("What this computer has for TeXora, and what is optional")).clicked() {
                 self.syscheck_open = true;
                 ui.close();
             }
-            if ui.button("Command-line tool").on_hover_text("Where this copy's command-line tool is, with examples").clicked() {
+            if ui.button(crate::t!("Command-line tool")).on_hover_text(crate::t!("Where this copy's command-line tool is, with examples")).clicked() {
                 self.cli_open = true;
                 ui.close();
             }
-            if ui.button("Keyboard shortcuts").clicked() {
+            if ui.button(crate::t!("Keyboard shortcuts")).clicked() {
                 self.left = Some(LeftTab::Settings);
                 ui.close();
             }
             ui.separator();
-            if ui.button("About TeXora").clicked() {
+            if ui.button(crate::t!("About TeXora")).clicked() {
                 self.about_open = true;
                 ui.close();
             }
@@ -324,7 +352,7 @@ impl App {
     /// Where the command-line tool is: it is this program, so the box shows this copy's own path,
     /// found at run time and written for this system's terminal.
     fn cli_window(&mut self, ctx: &Context) {
-        let help = crate::cli::cli_help(crate::cli::Os::current(), &crate::cli::this_program());
+        let help = crate::cli::cli_help_in(crate::cli::Os::current(), &crate::cli::this_program(), crate::i18n::lang());
         let flash = sid("cli-copied");
         let recent: Option<(String, f64)> = ctx.data(|d| d.get_temp(flash));
         let now = ctx.input(|i| i.time);
@@ -340,8 +368,8 @@ impl App {
                         ui.add(Label::new(RichText::new(text).monospace().size(12.5).color(INK)).wrap().selectable(true));
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let label = if just { RichText::new("Copied").color(LEAF_DARK) } else { RichText::new("Copy") };
-                        if ui.small_button(label).on_hover_text("Copy to the clipboard").clicked() {
+                        let label = if just { RichText::new(crate::t!("Copied")).color(LEAF_DARK) } else { RichText::new(crate::t!("Copy")) };
+                        if ui.small_button(label).on_hover_text(crate::t!("Copy to the clipboard")).clicked() {
                             *copied = Some(text.to_string());
                         }
                     });
@@ -350,19 +378,19 @@ impl App {
         };
         let resp = Modal::new(sid("cli")).show(ctx, |ui| {
             ui.set_width(620.0);
-            ui.label(RichText::new("Command-line tool").size(20.0).family(FontFamily::Name("strong".into())).color(INK));
+            ui.label(RichText::new(crate::t!("Command-line tool")).size(20.0).family(FontFamily::Name("strong".into())).color(INK));
             ui.add_space(4.0);
             if let Some(w) = &help.warning {
                 ui.label(RichText::new(w).size(13.5).color(WARN));
                 ui.add_space(4.0);
             }
-            ui.label(RichText::new(format!("The command-line tool is TeXora itself. This copy is here; run it in {}:", help.terminal)).size(14.0));
+            ui.label(RichText::new(tfill!(crate::t!("The command-line tool is TeXora itself. This copy is here; run it in {0}:"), help.terminal)).size(14.0));
             ui.add_space(4.0);
             row(ui, &help.run, &mut copied);
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Program file:").size(12.0).color(MUTED));
+                ui.label(RichText::new(crate::t!("Program file:")).size(12.0).color(MUTED));
                 ui.label(RichText::new(&help.path).size(12.0).color(MUTED).monospace());
-                if ui.small_button("Copy path").clicked() {
+                if ui.small_button(crate::t!("Copy path")).clicked() {
                     copied = Some(help.path.clone());
                 }
             });
@@ -370,7 +398,7 @@ impl App {
                 ui.label(RichText::new(n).size(12.5).color(MUTED));
             }
             ui.add_space(8.0);
-            ui.label(RichText::new("Examples").size(14.5).family(FontFamily::Name("medium".into())).color(INK));
+            ui.label(RichText::new(crate::t!("Examples")).size(14.5).family(FontFamily::Name("medium".into())).color(INK));
             for (cmd, what) in &help.examples {
                 ui.label(RichText::new(*what).size(12.5).color(MUTED));
                 row(ui, cmd, &mut copied);
@@ -379,9 +407,9 @@ impl App {
             ui.label(RichText::new(&help.setup_text).size(13.5));
             row(ui, &help.setup_line, &mut copied);
             ui.add_space(6.0);
-            ui.label(RichText::new("Every option is listed by --help, and in the README on the project page.").size(12.5).color(MUTED));
+            ui.label(RichText::new(crate::t!("Every option is listed by --help, and in the README on the project page.")).size(12.5).color(MUTED));
             ui.add_space(6.0);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.button("Close").clicked()).inner
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.button(crate::t!("Close")).clicked()).inner
         });
         if let Some(t) = copied {
             ctx.copy_text(t.clone());
@@ -405,9 +433,9 @@ impl App {
         let list = checks(&facts);
         let resp = Modal::new(sid("syscheck")).show(ctx, |ui| {
             ui.set_width(620.0);
-            ui.label(RichText::new("System check").size(20.0).family(FontFamily::Name("strong".into())).color(INK));
+            ui.label(RichText::new(crate::t!("System check")).size(20.0).family(FontFamily::Name("strong".into())).color(INK));
             ui.add_space(2.0);
-            ui.label(RichText::new("TeXora carries everything it needs to run: the program, its PDF engine, fonts and short guide. The rest is optional, for one feature each.").size(13.5).color(MUTED));
+            ui.label(RichText::new(crate::t!("TeXora carries everything it needs to run: the program, its PDF engine, fonts and short guide. The rest is optional, for one feature each.")).size(13.5).color(MUTED));
             ui.add_space(8.0);
             ScrollArea::vertical().max_height((ctx.content_rect().height() - 220.0).max(200.0)).show(ui, |ui| {
                 for c in &list {
@@ -447,7 +475,7 @@ impl App {
                 }
             });
             ui.add_space(6.0);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.button("Close").clicked()).inner
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.button(crate::t!("Close")).clicked()).inner
         });
         if resp.inner || resp.should_close() {
             self.syscheck_open = false;
@@ -465,21 +493,21 @@ impl App {
                     logo(ui, r);
                     ui.add_space(4.0);
                     ui.label(RichText::new("TeXora").size(21.0).family(FontFamily::Name("strong".into())).color(INK));
-                    ui.label(RichText::new(format!("Version {}", update::VERSION)).size(13.0).color(MUTED));
+                    ui.label(RichText::new(tfill!(crate::t!("Version {0}"), update::VERSION)).size(13.0).color(MUTED));
                 });
                 ui.add_space(6.0);
-                markdown(ui, ABOUT_TEXT, 15.0);
+                markdown(ui, crate::i18n::about(crate::i18n::lang()), 15.0);
                 ui.add_space(6.0);
                 Grid::new("about-facts").num_columns(2).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
-                    ui.label(RichText::new("Website").size(14.0).color(MUTED));
+                    ui.label(RichText::new(crate::t!("Website")).size(14.0).color(MUTED));
                     ui.hyperlink_to(RichText::new(update::WEBSITE.trim_start_matches("https://")).size(14.0), update::WEBSITE);
                     ui.end_row();
-                    ui.label(RichText::new("Developer").size(14.0).color(MUTED));
+                    ui.label(RichText::new(crate::t!("Developer")).size(14.0).color(MUTED));
                     ui.label(RichText::new(update::DEVELOPER).size(14.0).color(INK));
                     ui.end_row();
                 });
                 ui.add_space(8.0);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.button("Close").clicked()).inner
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.button(crate::t!("Close")).clicked()).inner
             });
             if resp.inner || resp.should_close() {
                 self.about_open = false;
@@ -505,44 +533,44 @@ impl App {
         if self.update_open {
             let resp = Modal::new(sid("updates")).show(ctx, |ui| {
                 ui.set_width(380.0);
-                ui.label(RichText::new("Check for updates").size(18.0).family(FontFamily::Name("medium".into())).color(INK));
-                ui.label(RichText::new(format!("You have TeXora {}.", update::VERSION)).color(MUTED));
+                ui.label(RichText::new(crate::t!("Check for updates")).size(18.0).family(FontFamily::Name("medium".into())).color(INK));
+                ui.label(RichText::new(tfill!(crate::t!("You have TeXora {0}."), update::VERSION)).color(MUTED));
                 ui.add_space(6.0);
                 let mut download = None;
                 match &self.update_result {
                     None => {
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label("Checking…");
+                            ui.label(crate::t!("Checking…"));
                         });
                     }
                     Some(update::Outcome::UpToDate) => {
-                        ui.label(RichText::new("You're up to date.").color(LEAF_DARK));
+                        ui.label(RichText::new(crate::t!("You're up to date.")).color(LEAF_DARK));
                     }
                     Some(update::Outcome::Failed(m)) => {
                         ui.label(RichText::new(m).color(BAD));
                     }
                     Some(update::Outcome::Available { version, url, notes, download: file }) => {
-                        ui.label(RichText::new(format!("TeXora {version} is available.")).color(LEAF_DARK));
+                        ui.label(RichText::new(tfill!(crate::t!("TeXora {0} is available."), version)).color(LEAF_DARK));
                         if !notes.is_empty() {
                             ScrollArea::vertical().max_height(220.0).show(ui, |ui| markdown(ui, notes, 13.5));
                         }
                         ui.add_space(4.0);
                         ui.horizontal_wrapped(|ui| {
                             if let Some((name, link)) = file {
-                                let b = Button::new(RichText::new(format!("Download {name}")).color(Color32::WHITE)).fill(LEAF);
-                                if ui.add(b).on_hover_text("The package for this computer. Install it over the one you have; your settings stay.").clicked() {
+                                let b = Button::new(RichText::new(tfill!(crate::t!("Download {0}"), name)).color(Color32::WHITE)).fill(LEAF);
+                                if ui.add(b).on_hover_text(crate::t!("The package for this computer. Install it over the one you have; your settings stay.")).clicked() {
                                     download = Some(link.clone());
                                 }
                             }
-                            if !url.is_empty() && ui.button("Open download page").clicked() {
+                            if !url.is_empty() && ui.button(crate::t!("Open download page")).clicked() {
                                 download = Some(url.clone());
                             }
                         });
                     }
                 }
                 ui.add_space(8.0);
-                let close = ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.button("Close").clicked()).inner;
+                let close = ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.button(crate::t!("Close")).clicked()).inner;
                 (close, download)
             });
             let close = resp.inner.0 || resp.should_close();
@@ -579,18 +607,18 @@ impl App {
                     ui.horizontal(|ui| {
                         let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
                         ui.painter().circle_filled(r.center(), 4.5, LEAF);
-                        ui.label(RichText::new("Update available").size(15.5).family(FontFamily::Name("medium".into())).color(INK));
+                        ui.label(RichText::new(crate::t!("Update available")).size(15.5).family(FontFamily::Name("medium".into())).color(INK));
                     });
-                    ui.label(RichText::new(format!("TeXora {version} is ready to download. You have {}.", update::VERSION)).size(13.0).color(MUTED));
+                    ui.label(RichText::new(tfill!(crate::t!("TeXora {0} is ready to download. You have {1}."), version, update::VERSION)).size(13.0).color(MUTED));
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if ui.add(Button::new(RichText::new("See what's new").color(Color32::WHITE)).fill(LEAF)).clicked() {
+                        if ui.add(Button::new(RichText::new(crate::t!("See what's new")).color(Color32::WHITE)).fill(LEAF)).clicked() {
                             action = 1;
                         }
-                        if ui.button("Later").clicked() {
+                        if ui.button(crate::t!("Later")).clicked() {
                             action = 2;
                         }
-                        if ui.button("Skip this version").clicked() {
+                        if ui.button(crate::t!("Skip this version")).clicked() {
                             action = 3;
                         }
                     });
@@ -614,10 +642,10 @@ impl App {
     /// Edit notes, then a tick to save or a cross to cancel, in the same place.
     fn note_buttons(&mut self, ui: &mut Ui) {
         if self.note_draft.is_some() {
-            if icon_button(ui, Icon::Check, true, "Save notes").clicked() {
+            if icon_button(ui, Icon::Check, true, crate::t!("Save notes")).clicked() {
                 self.save_note_draft();
             }
-            if icon_button(ui, Icon::Close, false, "Cancel, keep the notes as they were").clicked() {
+            if icon_button(ui, Icon::Close, false, crate::t!("Cancel, keep the notes as they were")).clicked() {
                 self.note_draft = None;
             }
         } else {
@@ -640,7 +668,7 @@ impl App {
             .align(Align2::CENTER_CENTER)
             .char_limit(5)
             .margin(vec2(2.0, 3.0));
-        let resp = ui.add(edit).on_hover_text("Click, type a slide number and press Enter (G)");
+        let resp = ui.add(edit).on_hover_text(crate::t!("Click, type a slide number and press Enter (G)"));
         if self.focus_jump {
             self.focus_jump = false;
             resp.request_focus();
@@ -663,8 +691,8 @@ impl App {
     fn view_group(&mut self, ui: &mut Ui) {
         let (v, swap) = (self.view, self.swap);
         for (icon, large, tip) in [
-            (Icon::Presenter, false, "Presenter: notes with current and next slide"),
-            (Icon::LargeSlide, true, "Large slide with notes beside it"),
+            (Icon::Presenter, false, crate::t!("Presenter: notes with current and next slide")),
+            (Icon::LargeSlide, true, crate::t!("Large slide with notes beside it")),
         ] {
             if icon_button(ui, icon, v == View::Presenter && swap == large, tip).clicked() {
                 self.view = View::Presenter;
@@ -693,7 +721,7 @@ impl App {
         let (r, resp) = ui.allocate_exact_size(vec2(30.0, 34.0), Sense::click());
         ui.painter().circle_filled(r.center(), 8.5, Color32::from_rgb(cur[0], cur[1], cur[2]));
         ui.painter().circle_stroke(r.center(), 10.5, Stroke::new(1.0, LINE));
-        let resp = resp.on_hover_text(if laser { "Laser colour" } else { "Ink colour" });
+        let resp = resp.on_hover_text(if laser { crate::t!("Laser colour") } else { crate::t!("Ink colour") });
         Popup::menu(&resp).show(|ui| {
             ui.horizontal(|ui| {
                 for c in PALETTE {
@@ -719,7 +747,7 @@ impl App {
         let level = self.zoom_level();
         ui.add_enabled_ui(level > 1.0, |ui| self.act(ui, Icon::Minus, false, Action::ZoomOut));
         let text = RichText::new(format!("{:.0}%", level * 100.0)).size(13.0).color(MUTED);
-        if ui.add_sized([46.0, 28.0], Button::new(text).frame(false)).on_hover_text("Fit to page").clicked() {
+        if ui.add_sized([46.0, 28.0], Button::new(text).frame(false)).on_hover_text(crate::t!("Fit to page")).clicked() {
             self.zoom = None;
         }
         ui.add_enabled_ui(level < MAX_ZOOM, |ui| self.act(ui, Icon::Plus, false, Action::ZoomIn));
@@ -736,23 +764,23 @@ impl App {
     }
 
     fn menus(&mut self, ui: &mut Ui) {
-        ui.menu_button("File", |ui| {
-            if ui.button("New LaTeX presentation…").clicked() {
+        ui.menu_button(crate::t!("File"), |ui| {
+            if ui.button(crate::t!("New LaTeX presentation…")).clicked() {
                 self.new_presentation_dialog();
                 ui.close();
             }
-            if ui.button("Open PDF…").clicked() {
-                self.open_dialog("PDF presentation", &["pdf"]);
+            if ui.button(crate::t!("Open PDF…")).clicked() {
+                self.open_dialog(crate::t!("PDF presentation"), &["pdf"]);
                 ui.close();
             }
-            if ui.button("Open LaTeX project…").clicked() {
-                self.open_dialog("LaTeX source", &["tex"]);
+            if ui.button(crate::t!("Open LaTeX project…")).clicked() {
+                self.open_dialog(crate::t!("LaTeX source"), &["tex"]);
                 ui.close();
             }
-            ui.menu_button("Open recent", |ui| {
+            ui.menu_button(crate::t!("Open recent"), |ui| {
                 let recents = self.st.recent.clone();
                 if recents.is_empty() {
-                    ui.label(RichText::new("Nothing yet").color(MUTED));
+                    ui.label(RichText::new(crate::t!("Nothing yet")).color(MUTED));
                 }
                 for p in recents {
                     let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -763,76 +791,76 @@ impl App {
                 }
             });
             ui.separator();
-            self.item(ui, "Home", Action::StartPage);
-            self.item(ui, "Close tab", Action::CloseTab);
-            if ui.button("Open the sample lecture").clicked() {
+            self.item(ui, crate::t!("Home"), Action::StartPage);
+            self.item(ui, crate::t!("Close tab"), Action::CloseTab);
+            if ui.button(crate::t!("Open the sample lecture")).clicked() {
                 if let Some(p) = ensure_sample() {
                     self.open_path(&p);
                 }
                 ui.close();
             }
         });
-        ui.menu_button("View", |ui| {
-            if ui.button("Presenter").clicked() {
+        ui.menu_button(crate::t!("View"), |ui| {
+            if ui.button(crate::t!("Presenter")).clicked() {
                 self.view = View::Presenter;
                 self.swap = false;
                 ui.close();
             }
-            if ui.button("Large slide").clicked() {
+            if ui.button(crate::t!("Large slide")).clicked() {
                 self.view = View::Presenter;
                 self.swap = true;
                 ui.close();
             }
-            self.item(ui, "Slide and notes split", Action::SplitView);
-            self.item(ui, "Slide overview", Action::Overview);
-            self.item(ui, "LaTeX studio", Action::Studio);
+            self.item(ui, crate::t!("Slide and notes split"), Action::SplitView);
+            self.item(ui, crate::t!("Slide overview"), Action::Overview);
+            self.item(ui, crate::t!("LaTeX studio"), Action::Studio);
             ui.separator();
-            self.item(ui, "Zoom in", Action::ZoomIn);
-            self.item(ui, "Zoom out", Action::ZoomOut);
-            self.item(ui, "Fit to page", Action::ZoomFit);
-            if ui.button("Fit all panels automatically").clicked() {
+            self.item(ui, crate::t!("Zoom in"), Action::ZoomIn);
+            self.item(ui, crate::t!("Zoom out"), Action::ZoomOut);
+            self.item(ui, crate::t!("Fit to page"), Action::ZoomFit);
+            if ui.button(crate::t!("Fit all panels automatically")).clicked() {
                 self.st.layout = Default::default();
                 self.save_layout();
                 ui.close();
             }
-            self.item(ui, "Edit notes for this slide", Action::EditNotes);
+            self.item(ui, crate::t!("Edit notes for this slide"), Action::EditNotes);
             ui.separator();
-            self.item(ui, "Contents and bookmarks", Action::Outline);
-            self.item(ui, "Search", Action::Search);
-            self.item(ui, "Analytics", Action::Analytics);
+            self.item(ui, crate::t!("Contents and bookmarks"), Action::Outline);
+            self.item(ui, crate::t!("Search"), Action::Search);
+            self.item(ui, crate::t!("Analytics"), Action::Analytics);
             ui.separator();
-            ui.menu_button("Speaker notes", |ui| {
-                ui.radio_value(&mut self.notes_view, NotesView::Auto, "Automatic");
-                ui.radio_value(&mut self.notes_view, NotesView::Pdf, "PDF notes page");
-                ui.radio_value(&mut self.notes_view, NotesView::Text, "Text notes");
+            ui.menu_button(crate::t!("Speaker notes"), |ui| {
+                ui.radio_value(&mut self.notes_view, NotesView::Auto, crate::t!("Automatic"));
+                ui.radio_value(&mut self.notes_view, NotesView::Pdf, crate::t!("PDF notes page"));
+                ui.radio_value(&mut self.notes_view, NotesView::Text, crate::t!("Text notes"));
             });
-            ui.menu_button("PDF notes layout", |ui| {
+            ui.menu_button(crate::t!("PDF notes layout"), |ui| {
                 let before = self.side.notes_mode;
-                ui.radio_value(&mut self.side.notes_mode, NotesMode::Auto, "Detect");
-                ui.radio_value(&mut self.side.notes_mode, NotesMode::Right, "Notes on right half");
-                ui.radio_value(&mut self.side.notes_mode, NotesMode::Left, "Notes on left half");
-                ui.radio_value(&mut self.side.notes_mode, NotesMode::Interleaved, "Every second page");
-                ui.radio_value(&mut self.side.notes_mode, NotesMode::None, "No notes pages");
+                ui.radio_value(&mut self.side.notes_mode, NotesMode::Auto, crate::t!("Detect"));
+                ui.radio_value(&mut self.side.notes_mode, NotesMode::Right, crate::t!("Notes on right half"));
+                ui.radio_value(&mut self.side.notes_mode, NotesMode::Left, crate::t!("Notes on left half"));
+                ui.radio_value(&mut self.side.notes_mode, NotesMode::Interleaved, crate::t!("Every second page"));
+                ui.radio_value(&mut self.side.notes_mode, NotesMode::None, crate::t!("No notes pages"));
                 if before != self.side.notes_mode {
                     self.rebuild_deck();
                     self.cache.clear();
                 }
             });
         });
-        ui.menu_button("Present", |ui| {
-            let lbl = if self.audience_open { "Close audience window" } else { "Open audience window" };
+        ui.menu_button(crate::t!("Present"), |ui| {
+            let lbl = if self.audience_open { crate::t!("Close audience window") } else { crate::t!("Open audience window") };
             self.item(ui, lbl, Action::Present);
-            self.item(ui, "Fullscreen", Action::Fullscreen);
-            ui.menu_button("Audience screen", |ui| {
+            self.item(ui, crate::t!("Fullscreen"), Action::Fullscreen);
+            ui.menu_button(crate::t!("Audience screen"), |ui| {
                 if self.displays.len() < 2 {
-                    ui.label(RichText::new("One display found. Connect a projector, then press F5.").color(MUTED));
+                    ui.label(RichText::new(crate::t!("One display found. Connect a projector, then press F5.")).color(MUTED));
                 }
                 let names: Vec<String> = self
                     .displays
                     .iter()
                     .enumerate()
                     .map(|(i, d)| {
-                        let n = if d.friendly_name.is_empty() { format!("Display {}", i + 1) } else { d.friendly_name.clone() };
+                        let n = if d.friendly_name.is_empty() { tfill!(crate::t!("Display {0}"), i + 1) } else { d.friendly_name.clone() };
                         format!("{n} ({}x{})", d.width, d.height)
                     })
                     .collect();
@@ -841,23 +869,23 @@ impl App {
                 }
             });
             ui.separator();
-            self.item(ui, "Black screen", Action::Blackout);
-            self.item(ui, "White screen", Action::Whiteboard);
-            self.item(ui, "Freeze audience screen", Action::Freeze);
+            self.item(ui, crate::t!("Black screen"), Action::Blackout);
+            self.item(ui, crate::t!("White screen"), Action::Whiteboard);
+            self.item(ui, crate::t!("Freeze audience screen"), Action::Freeze);
             ui.separator();
-            self.item(ui, "Set talk duration", Action::SetDuration);
-            self.item(ui, "Start or pause timer", Action::ToggleTimer);
-            self.item(ui, "Stop and reset timer", Action::ResetTimer);
+            self.item(ui, crate::t!("Set talk duration"), Action::SetDuration);
+            self.item(ui, crate::t!("Start or pause timer"), Action::ToggleTimer);
+            self.item(ui, crate::t!("Stop and reset timer"), Action::ResetTimer);
             ui.separator();
-            self.item(ui, "Bookmark this slide", Action::AddBookmark);
-            self.item(ui, "Mark a question on this slide", Action::MarkQuestion);
-            self.item(ui, "Go to slide number", Action::Jump);
+            self.item(ui, crate::t!("Bookmark this slide"), Action::AddBookmark);
+            self.item(ui, crate::t!("Mark a question on this slide"), Action::MarkQuestion);
+            self.item(ui, crate::t!("Go to slide number"), Action::Jump);
         });
-        ui.menu_button("Tools", |ui| {
-            self.item(ui, "Compile LaTeX", Action::Compile);
-            self.item(ui, "Check required packages", Action::CheckPackages);
+        ui.menu_button(crate::t!("Tools"), |ui| {
+            self.item(ui, crate::t!("Compile LaTeX"), Action::Compile);
+            self.item(ui, crate::t!("Check required packages"), Action::CheckPackages);
             ui.separator();
-            self.item(ui, "Settings and shortcuts", Action::Settings);
+            self.item(ui, crate::t!("Settings and shortcuts"), Action::Settings);
         });
     }
 }

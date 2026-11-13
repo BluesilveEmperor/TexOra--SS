@@ -9,6 +9,23 @@
 //! TeXora never downloads, installs, ships or updates ffmpeg or VLC. They are started with a list of
 //! arguments, never through a shell, and the file is passed as `file:<absolute path>` so its name can
 //! never be read as an option or as another kind of input.
+
+/// A translated text with its {0}, {1}… placeholders filled in, in the order they are given.
+///
+/// `format!` wants its format string to be a literal, but a translated one is only known when the
+/// program runs, so the placeholders are put in by hand: the text first, the values after it.
+macro_rules! tfill {
+    ($text:expr $(, $arg:expr)* $(,)?) => {{
+        let mut text = String::from($text);
+        let args: Vec<String> = vec![$(format!("{}", $arg)),*];
+        for (i, arg) in args.iter().enumerate() {
+            let key = format!("{{{i}}}");
+            text = text.replace(key.as_str(), arg);
+        }
+        text
+    }};
+}
+
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -36,15 +53,20 @@ pub enum Problem {
 /// The words over a clip that needs a video tool, also shown under Problems.
 pub const NEEDS_PLAYER: &str = "This video needs VLC or ffmpeg installed on your computer.";
 
+/// The same words in the language of the interface, for the places that show them over a clip.
+pub fn needs_player_text() -> &'static str {
+    crate::t!(NEEDS_PLAYER)
+}
+
 impl Problem {
     pub fn message(&self, name: &str) -> String {
         match self {
-            Problem::Missing => "Video not found: Place the video in the same folder as your .tex file or in a subfolder. If it's in a subfolder, include the folder path in \\includevideo.".to_string(),
-            Problem::Refused(why) => format!("Not played: {name}\n{why}"),
-            Problem::Broken(why) => format!("Cannot play {name}\n{why}"),
-            Problem::NotVideo => format!("Not a video: {name}\nUse a video file (such as MP4) or a GIF."),
-            Problem::NeedsPlayer => NEEDS_PLAYER.to_string(),
-            Problem::PlayerOff => format!("Not played: {name}\nVideo playing is turned off in Settings > Video."),
+            Problem::Missing => crate::t!("Video not found: Place the video in the same folder as your .tex file or in a subfolder. If it's in a subfolder, include the folder path in \\includevideo.").to_string(),
+            Problem::Refused(why) => tfill!(crate::t!("Not played: {0}\n{1}"), name, why),
+            Problem::Broken(why) => tfill!(crate::t!("Cannot play {0}\n{1}"), name, why),
+            Problem::NotVideo => tfill!(crate::t!("Not a video: {0}\nUse a video file (such as MP4) or a GIF."), name),
+            Problem::NeedsPlayer => needs_player_text().to_string(),
+            Problem::PlayerOff => tfill!(crate::t!("Not played: {0}\nVideo playing is turned off in Settings > Video."), name),
         }
     }
 }
@@ -127,10 +149,10 @@ impl Choice {
 
     pub fn label(self) -> &'static str {
         match self {
-            Choice::Auto => "Auto",
+            Choice::Auto => crate::t!("Auto"),
             Choice::Ffmpeg => "ffmpeg",
             Choice::Vlc => "VLC",
-            Choice::Off => "Off",
+            Choice::Off => crate::t!("Off"),
         }
     }
 }
@@ -290,7 +312,7 @@ fn run_for(mut c: Command, limit: Duration) -> Result<(String, String), String> 
             Ok(None) if start.elapsed() > limit => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!("it did not answer within {} seconds", limit.as_secs()));
+                return Err(tfill!(crate::t!("it did not answer within {0} seconds"), limit.as_secs()));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),
             Err(e) => return Err(e.to_string()),
@@ -302,13 +324,13 @@ fn run_for(mut c: Command, limit: Duration) -> Result<(String, String), String> 
 /// Settings > Video > Test: runs the tool with its version option and returns its first line.
 pub fn test_tool(program: &Path, vlc: bool) -> Result<String, String> {
     if !program.is_file() {
-        return Err("No program at this path.".into());
+        return Err(crate::t!("No program at this path.").into());
     }
     let mut c = tool_command(program);
     c.arg(if vlc { "--version" } else { "-version" });
     let (out, err) = run_for(c, Duration::from_secs(8))?;
     let text = if out.trim().is_empty() { err } else { out };
-    text.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_string).ok_or_else(|| "It started but did not say its version.".into())
+    text.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_string).ok_or_else(|| crate::t!("It started but did not say its version.").into())
 }
 
 /// A path as the tools read it: without the `\\?\` that Windows puts in front of canonical paths.
@@ -341,7 +363,7 @@ pub const FFMPEG_FORMATS: &str = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,ogg,
 /// from Settings, and no other argument can come from a project.
 pub fn ffmpeg_input_args(path: &Path, start: Option<f64>) -> Result<Vec<String>, Problem> {
     if !path.is_absolute() {
-        return Err(Problem::Refused("TeXora only passes full paths to ffmpeg.".into()));
+        return Err(Problem::Refused(crate::t!("TeXora only passes full paths to ffmpeg.").into()));
     }
     let mut a: Vec<String> = ["-hide_banner", "-nostdin", "-protocol_whitelist", "file", "-format_whitelist", FFMPEG_FORMATS].iter().map(|s| s.to_string()).collect();
     if let Some(t) = start {
@@ -358,7 +380,7 @@ pub fn ffmpeg_input_args(path: &Path, start: Option<f64>) -> Result<Vec<String>,
 /// itself, so without ffmpeg (and ffplay) a clip opened in VLC is still heard.
 pub fn vlc_args(path: &Path, repeat: bool, silent: bool) -> Result<Vec<String>, String> {
     if !path.is_absolute() {
-        return Err("TeXora only passes full paths to VLC.".into());
+        return Err(crate::t!("TeXora only passes full paths to VLC.").into());
     }
     let mut a = vec!["--play-and-exit".to_string()];
     if repeat {
@@ -376,7 +398,7 @@ pub fn vlc_args(path: &Path, repeat: bool, silent: bool) -> Result<Vec<String>, 
 /// `video_magic`): VLC would also play a playlist, which can point anywhere.
 pub fn open_in_vlc(vlc: &Path, path: &Path, repeat: bool, silent: bool) -> Result<(), String> {
     if !head(path).is_ok_and(|h| video_magic(&h)) {
-        return Err("it is not a video file VLC may open.".into());
+        return Err(crate::t!("it is not a video file VLC may open.").into());
     }
     let mut c = tool_command(vlc);
     c.args(vlc_args(path, repeat, silent)?).stdout(Stdio::null()).stderr(Stdio::null());
@@ -428,7 +450,7 @@ pub fn check(path: &Path) -> Result<(), Problem> {
         return Err(Problem::Missing);
     }
     if !path.is_file() {
-        return Err(Problem::Refused("It is a folder, not a file.".into()));
+        return Err(Problem::Refused(crate::t!("It is a folder, not a file.").into()));
     }
     let h = head(path)?;
     if is_gif(&h) {
@@ -451,7 +473,7 @@ pub fn open(path: &Path) -> Result<Box<dyn Stream>, Problem> {
         return Err(Problem::Missing);
     }
     if !path.is_file() {
-        return Err(Problem::Refused("It is a folder, not a file.".into()));
+        return Err(Problem::Refused(crate::t!("It is a folder, not a file.").into()));
     }
     let h = head(path)?;
     if is_gif(&h) {
@@ -517,7 +539,7 @@ pub fn parse_probe(text: &str) -> Option<Probe> {
 pub fn probe(ffmpeg: &Path, path: &Path) -> Result<Probe, Problem> {
     let mut c = tool_command(ffmpeg);
     c.args(ffmpeg_input_args(path, None)?);
-    let (_, err) = run_for(c, Duration::from_secs(15)).map_err(|e| Problem::Broken(format!("ffmpeg could not be run: {e}.")))?;
+    let (_, err) = run_for(c, Duration::from_secs(15)).map_err(|e| Problem::Broken(tfill!(crate::t!("ffmpeg could not be run: {0}."), e)))?;
     parse_probe(&err).ok_or(Problem::NotVideo)
 }
 
@@ -559,7 +581,7 @@ impl FfmpegStream {
         c.arg("-r").arg(format!("{:.3}", self.fps));
         c.args(["-pix_fmt", "rgba", "-f", "rawvideo", "pipe:1"]);
         c.stdout(Stdio::piped()).stderr(Stdio::null());
-        let child = c.spawn().map_err(|e| Problem::Broken(format!("ffmpeg could not be started: {e}.")))?;
+        let child = c.spawn().map_err(|e| Problem::Broken(tfill!(crate::t!("ffmpeg could not be started: {0}."), e)))?;
         (self.child, self.start, self.n) = (Some(child), seconds.max(0.0), 0);
         Ok(())
     }
@@ -610,7 +632,7 @@ impl Stream for FfmpegStream {
 /// the file as `file:<full path>`. ffplay ends by itself at the end of the sound (`-autoexit`).
 pub fn ffplay_args(path: &Path, start: f64) -> Result<Vec<String>, Problem> {
     if !path.is_absolute() {
-        return Err(Problem::Refused("TeXora only passes full paths to ffplay.".into()));
+        return Err(Problem::Refused(crate::t!("TeXora only passes full paths to ffplay.").into()));
     }
     // -stats: ffplay reports where the sound is, which the picture follows.
     let mut a: Vec<String> = ["-hide_banner", "-loglevel", "error", "-stats", "-nodisp", "-autoexit", "-vn", "-sn", "-protocol_whitelist", "file", "-format_whitelist", FFMPEG_FORMATS].iter().map(|s| s.to_string()).collect();
@@ -763,7 +785,7 @@ impl GifStream {
         use image::AnimationDecoder;
         use image::ImageDecoder;
         let f = File::open(&self.path).map_err(|e| Problem::Broken(e.to_string()))?;
-        let d = image::codecs::gif::GifDecoder::new(BufReader::new(f)).map_err(|e| Problem::Broken(format!("The GIF could not be read ({e}).")))?;
+        let d = image::codecs::gif::GifDecoder::new(BufReader::new(f)).map_err(|e| Problem::Broken(tfill!(crate::t!("The GIF could not be read ({0})."), e)))?;
         let (w, h) = d.dimensions();
         (self.info.width, self.info.height) = (w, h);
         self.frames = Some(d.into_frames());
@@ -836,7 +858,7 @@ pub fn poster(path: &Path, fraction: f64) -> Result<(u32, u32, Vec<u8>), Problem
         let p = probe(&ff, path)?;
         FfmpegStream::open(&ff, path, p.duration * f)?.next_frame()
     };
-    let f = frame.ok_or_else(|| Problem::Broken("No picture could be read from it.".into()))?;
+    let f = frame.ok_or_else(|| Problem::Broken(crate::t!("No picture could be read from it.").into()))?;
     Ok((f.picture.width, f.picture.height, f.picture.data))
 }
 
@@ -1003,7 +1025,7 @@ mod tests {
         assert!(video_magic(&head(&clip("test.mp4")).unwrap()));
         assert!(video_magic(&head(&clip("hevc.mp4")).unwrap()));
         assert!(!video_magic(&head(&clip("test.txt")).unwrap()));
-        assert!(open_in_vlc(Path::new("/nonexistent/vlc"), &hls, false, false).unwrap_err().contains("not a video"));
+        assert!(open_in_vlc(Path::new("/nonexistent/vlc"), &hls, false, false).unwrap_err().contains(crate::t!("it is not a video file VLC may open.")));
     }
 
     /// With the real ffmpeg: files that are really a concat list or an HLS playlist, named `.mp4`, are

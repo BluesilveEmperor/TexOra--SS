@@ -20,6 +20,22 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
+/// A translated text with its {0}, {1}… placeholders filled in, in the order they are given.
+///
+/// `format!` wants its format string to be a literal, but a translated one is only known when the
+/// program runs, so the placeholders are put in by hand: the text first, the values after it.
+macro_rules! tfill {
+    ($text:expr $(, $arg:expr)* $(,)?) => {{
+        let mut text = String::from($text);
+        let args: Vec<String> = vec![$(format!("{}", $arg)),*];
+        for (i, arg) in args.iter().enumerate() {
+            let key = format!("{{{i}}}");
+            text = text.replace(key.as_str(), arg);
+        }
+        text
+    }};
+}
+
 pub const STY: &str = include_str!("../assets/tex/texoravideo.sty");
 pub const FOLDER: &str = "texora-video";
 /// Posters are at most this wide; a bigger one only makes the PDF larger.
@@ -98,10 +114,23 @@ fn is_poster_file(name: &str) -> bool {
 pub fn tex_dir() -> std::io::Result<PathBuf> {
     let dir = crate::settings::data_dir().join("tex");
     std::fs::create_dir_all(&dir)?;
-    let dir = dir.canonicalize().unwrap_or(dir);
+    let dir = without_extended_prefix(dir.canonicalize().unwrap_or(dir));
     write_if_changed(&dir.join("texoravideo.sty"), STY.as_bytes())?;
     write_if_changed(&dir.join("texoravideo-placeholder.png"), &placeholder_png())?;
     Ok(dir)
+}
+
+/// Windows gives an absolute path the `\\?\` prefix, which tells Windows to leave long paths
+/// alone. TeX's own path search does not know that prefix, so it would not find the package.
+fn without_extended_prefix(path: PathBuf) -> PathBuf {
+    let Some(text) = path.to_str() else { return path };
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) => PathBuf::from(rest),
+        None => path,
+    }
 }
 
 fn write_if_changed(p: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -285,18 +314,18 @@ pub fn uses(root: &Path) -> Vec<Use> {
 pub fn resolve(dir: &Path, written: &str) -> Result<PathBuf, Problem> {
     let w = written.trim();
     if w.is_empty() {
-        return Err(Problem::Refused("No file name was given.".into()));
+        return Err(Problem::Refused(crate::t!("No file name was given.").into()));
     }
     if w.contains("://") || w.starts_with("www.") {
-        return Err(Problem::Refused("Web addresses are not played. Save the video in the presentation's folder.".into()));
+        return Err(Problem::Refused(crate::t!("Web addresses are not played. Save the video in the presentation's folder.").into()));
     }
     let rel = Path::new(w);
     let drive = w.len() > 1 && w.as_bytes()[1] == b':';
     if rel.is_absolute() || rel.has_root() || drive || w.starts_with('~') {
-        return Err(Problem::Refused("Only files inside the presentation's folder are played. Write the path from that folder.".into()));
+        return Err(Problem::Refused(crate::t!("Only files inside the presentation's folder are played. Write the path from that folder.").into()));
     }
     if rel.components().any(|c| matches!(c, Component::ParentDir)) {
-        return Err(Problem::Refused("The path leads out of the presentation's folder (\"..\").".into()));
+        return Err(Problem::Refused(crate::t!("The path leads out of the presentation's folder (\"..\").").into()));
     }
     let base = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     let full = base.join(rel);
@@ -306,10 +335,10 @@ pub fn resolve(dir: &Path, written: &str) -> Result<PathBuf, Problem> {
     // A link inside the folder that points out of it is refused too.
     let real = full.canonicalize().map_err(|e| Problem::Broken(e.to_string()))?;
     if !real.starts_with(&base) {
-        return Err(Problem::Refused("It is a link to a file outside the presentation's folder.".into()));
+        return Err(Problem::Refused(crate::t!("It is a link to a file outside the presentation's folder.").into()));
     }
     if !real.is_file() {
-        return Err(Problem::Refused("It is a folder, not a file.".into()));
+        return Err(Problem::Refused(crate::t!("It is a folder, not a file.").into()));
     }
     Ok(real)
 }
@@ -390,7 +419,7 @@ pub fn prepare(root: &Path) -> Report {
             for &i in &j.uses {
                 if let Some(other) = uses[i].at.filter(|&a| a != at) {
                     let u = &uses[i];
-                    report.problems.push((u.file.clone(), u.line, format!("posterat={other} is not used: {} has one poster, taken at {at}% as asked on line {}.", j.key, uses[fi].line)));
+                    report.problems.push((u.file.clone(), u.line, tfill!(crate::t!("posterat={0} is not used: {1} has one poster, taken at {2}% as asked on line {3}."), other, j.key, at, uses[fi].line)));
                 }
             }
         }
@@ -422,12 +451,12 @@ pub fn prepare(root: &Path) -> Report {
                             (e.width, e.height) = (w, h);
                             let saved = poster_jpeg(w, h, rgba).is_some_and(|jpg| std::fs::write(&target, jpg).is_ok());
                             if !saved {
-                                e.problem = Some(Problem::Broken("Its poster could not be saved.".into()).message(&j.key));
+                                e.problem = Some(Problem::Broken(crate::t!("Its poster could not be saved.").into()).message(&j.key));
                             }
                         }
                         // VLC plays the clip, but only ffmpeg makes posters: a plain box shows instead.
                         Err(Problem::NeedsPlayer) if matches!(video::backend(), video::Backend::Vlc(_)) => {
-                            e.note = Some(format!("No poster for {}: posters need ffmpeg, so a plain box shows. The clip plays in VLC when clicked.", j.key));
+                            e.note = Some(tfill!(crate::t!("No poster for {0}: posters need ffmpeg, so a plain box shows. The clip plays in VLC when clicked."), j.key));
                         }
                         Err(p) => {
                             e.problem = Some(p.message(&j.key));

@@ -14,6 +14,22 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::time::{Instant, SystemTime};
 
+/// A translated text with its {0}, {1}… placeholders filled in, in the order they are given.
+///
+/// `format!` wants its format string to be a literal, but a translated one is only known when the
+/// program runs, so the placeholders are put in by hand: the text first, the values after it.
+macro_rules! tfill {
+    ($text:expr $(, $arg:expr)* $(,)?) => {{
+        let mut text = String::from($text);
+        let args: Vec<String> = vec![$(format!("{}", $arg)),*];
+        for (i, arg) in args.iter().enumerate() {
+            let key = format!("{{{i}}}");
+            text = text.replace(key.as_str(), arg);
+        }
+        text
+    }};
+}
+
 macro_rules! tab_state {
     ($($field:ident : $kind:ty = $start:expr),* $(,)?) => {
         pub struct Tab {
@@ -187,7 +203,7 @@ impl App {
             (&self.tabs[i].pdf_path, &self.tabs[i].src, self.tabs[i].compiling)
         };
         let path = pdf.as_ref().or(src.as_ref().map(|s| &s.path));
-        let Some(path) = path else { return "Home".to_string() };
+        let Some(path) = path else { return crate::t!("Home").to_string() };
         let name = path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let dirty = src.as_ref().map(|s| s.dirty).unwrap_or(false);
         format!("{}{name}{}", if dirty { "• " } else { "" }, if compiling { " …" } else { "" })
@@ -271,10 +287,10 @@ impl App {
             return;
         }
         self.status = if self.side.bookmarks.remove(&f) {
-            format!("Bookmark removed from slide {}.", f + 1)
+            tfill!(crate::t!("Bookmark removed from slide {0}."), f + 1)
         } else {
             self.side.bookmarks.insert(f);
-            format!("Bookmarked slide {}.", f + 1)
+            tfill!(crate::t!("Bookmarked slide {0}."), f + 1)
         };
         self.save_side();
     }
@@ -287,11 +303,11 @@ impl App {
         }
         if self.side.questions.remove(&f) {
             self.session.questions.retain(|q| *q != f);
-            self.status = format!("Question mark removed from slide {}.", f + 1);
+            self.status = tfill!(crate::t!("Question mark removed from slide {0}."), f + 1);
         } else {
             self.side.questions.insert(f);
             self.session.questions.push(f);
-            self.status = format!("Marked a question on slide {}.", f + 1);
+            self.status = tfill!(crate::t!("Marked a question on slide {0}."), f + 1);
         }
         self.save_side();
     }

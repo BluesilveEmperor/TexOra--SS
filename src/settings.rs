@@ -57,7 +57,7 @@ pub enum Action {
 
 impl Action {
     pub fn label(self) -> &'static str {
-        match self {
+        crate::t!(match self {
             Action::Next => "Next step",
             Action::Prev => "Previous step",
             Action::NextFrame => "Next slide (skip overlays)",
@@ -106,7 +106,7 @@ impl Action {
             Action::EditNotes => "Edit notes for this slide",
             Action::AddBookmark => "Bookmark this slide",
             Action::CloseTab => "Close this tab",
-        }
+        })
     }
     /// Keys that keep working while typing, because they hold a modifier or close things.
     pub fn works_while_typing(self) -> bool {
@@ -266,6 +266,9 @@ pub struct Settings {
     pub skipped_update: String,
     /// The template chosen last for a new presentation.
     pub last_template: String,
+    /// The language of the interface: "en" or "zh-CN". Anything else means English, so a file
+    /// written by a later version still opens.
+    pub language: String,
     pub layout: Layout,
 }
 
@@ -290,6 +293,7 @@ impl Default for Settings {
             check_updates: true,
             skipped_update: String::new(),
             last_template: String::new(),
+            language: "en".to_string(),
             layout: Layout::default(),
         }
     }

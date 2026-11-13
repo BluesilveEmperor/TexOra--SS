@@ -12,6 +12,22 @@ const MATH: Color32 = Color32::from_rgb(130, 50, 150);
 const BRACE: Color32 = Color32::from_rgb(170, 90, 20);
 const TEXT: Color32 = Color32::from_rgb(40, 40, 40);
 
+/// A translated text with its {0}, {1}… placeholders filled in, in the order they are given.
+///
+/// `format!` wants its format string to be a literal, but a translated one is only known when the
+/// program runs, so the placeholders are put in by hand: the text first, the values after it.
+macro_rules! tfill {
+    ($text:expr $(, $arg:expr)* $(,)?) => {{
+        let mut text = String::from($text);
+        let args: Vec<String> = vec![$(format!("{}", $arg)),*];
+        for (i, arg) in args.iter().enumerate() {
+            let key = format!("{{{i}}}");
+            text = text.replace(key.as_str(), arg);
+        }
+        text
+    }};
+}
+
 /// Colours LaTeX source by simple rules; it never changes the text.
 pub fn highlight(src: &str, size: f32) -> LayoutJob {
     let mut job = LayoutJob::default();
@@ -89,12 +105,16 @@ fn char_of_line(text: &str, line: usize) -> usize {
 
 /// The Problems tab's name, with errors and warnings counted apart.
 pub fn problems_tab(errors: usize, warnings: usize) -> String {
-    let n = |k: usize, one: &str| format!("{k} {one}{}", if k == 1 { "" } else { "s" });
     match (errors, warnings) {
-        (0, 0) => "Problems (0)".to_string(),
-        (0, w) => format!("Problems: {}", n(w, "warning")),
-        (e, 0) => format!("Problems: {}", n(e, "error")),
-        (e, w) => format!("Problems: {}, {}", n(e, "error"), n(w, "warning")),
+        (0, 0) => crate::t!("Problems (0)").to_string(),
+        (0, 1) => crate::t!("Problems: 1 warning").to_string(),
+        (0, w) => tfill!(crate::t!("Problems: {0} warnings"), w),
+        (1, 0) => crate::t!("Problems: 1 error").to_string(),
+        (e, 0) => tfill!(crate::t!("Problems: {0} errors"), e),
+        (1, 1) => crate::t!("Problems: 1 error, 1 warning").to_string(),
+        (1, w) => tfill!(crate::t!("Problems: 1 error, {0} warnings"), w),
+        (e, 1) => tfill!(crate::t!("Problems: {0} errors, 1 warning"), e),
+        (e, w) => tfill!(crate::t!("Problems: {0} errors, {1} warnings"), e, w),
     }
 }
 
@@ -108,10 +128,11 @@ fn open_folds_at(regions: &[crate::fold::Region], folded: &mut std::collections:
 /// What a fold arrow's tip names: "\begin{frame}", "\section", "the preamble", "this group".
 fn fold_label(r: &crate::fold::Region) -> String {
     match r.kind {
+        // The LaTeX itself is left as it is: only the words around it are the interface's.
         crate::fold::Kind::Environment => format!("\\begin{{{}}} … \\end{{{}}}", r.name, r.name),
-        crate::fold::Kind::Section => format!("this \\{}", r.name),
-        crate::fold::Kind::Preamble => "the preamble".to_string(),
-        crate::fold::Kind::Group => "this {…} group".to_string(),
+        crate::fold::Kind::Section => tfill!(crate::t!("this {0}"), format!("\\{}", r.name)),
+        crate::fold::Kind::Preamble => crate::t!("the preamble").to_string(),
+        crate::fold::Kind::Group => crate::t!("this {…} group").to_string(),
     }
 }
 
@@ -125,23 +146,23 @@ impl App {
         let frame = Frame::new().fill(SURFACE).inner_margin(Margin::symmetric(8, 4));
         Panel::top("studio-top").exact_size(44.0).frame(frame).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
-                if labelled_button(ui, Icon::Refresh, "Compile", true).clicked() {
+                if labelled_button(ui, Icon::Refresh, crate::t!("Compile"), true).clicked() {
                     self.run(Action::Compile, &ctx);
                 }
-                if labelled_button(ui, Icon::Save, "Save", false).clicked() {
+                if labelled_button(ui, Icon::Save, crate::t!("Save"), false).clicked() {
                     self.run(Action::Save, &ctx);
                 }
                 engine_combo(ui, &mut self.st.engine);
-                if labelled_button(ui, Icon::Check, "Check packages", false).clicked() {
+                if labelled_button(ui, Icon::Check, crate::t!("Check packages"), false).clicked() {
                     self.run(Action::CheckPackages, &ctx);
                 }
-                ui.checkbox(&mut self.st.auto_compile, "Rebuild on save");
-                ui.checkbox(&mut self.follow_cursor, "Follow cursor").on_hover_text("Show the slide for the line you are on");
-                if ui.checkbox(&mut self.st.editor_wrap, "Wrap text").on_hover_text("Wrap long lines at the editor's width instead of scrolling sideways").changed() {
+                ui.checkbox(&mut self.st.auto_compile, crate::t!("Rebuild on save"));
+                ui.checkbox(&mut self.follow_cursor, crate::t!("Follow cursor")).on_hover_text(crate::t!("Show the slide for the line you are on"));
+                if ui.checkbox(&mut self.st.editor_wrap, crate::t!("Wrap text")).on_hover_text(crate::t!("Wrap long lines at the editor's width instead of scrolling sideways")).changed() {
                     self.save_layout();
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if labelled_button(ui, Icon::Presenter, "Present", false).clicked() {
+                    if labelled_button(ui, Icon::Presenter, crate::t!("Present"), false).clicked() {
                         self.view = View::Presenter;
                     }
                 });
@@ -182,13 +203,13 @@ impl App {
         let warns = self.problems.len() - errs;
         let missing = self.reqs.iter().filter(|r| !r.found).count();
         let (icon, color, text) = if self.compiling {
-            (Icon::Refresh, WARN, "Compiling…".to_string())
+            (Icon::Refresh, WARN, crate::t!("Compiling…").to_string())
         } else if self.compile_ok == Some(false) {
             (Icon::Warn, BAD, self.compile_note.clone())
         } else if self.compile_ok == Some(true) {
             (Icon::Check, LEAF, self.compile_note.clone())
         } else {
-            (Icon::Code, MUTED, "Ready to compile".to_string())
+            (Icon::Code, MUTED, crate::t!("Ready to compile").to_string())
         };
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
@@ -196,19 +217,23 @@ impl App {
             icons::paint(ui.painter(), r, icon, color);
             ui.add(Label::new(RichText::new(text).color(color).size(13.5)).truncate());
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let chevron = if self.log_open { "Hide" } else { "Show" };
+                let chevron = if self.log_open { crate::t!("Hide") } else { crate::t!("Show") };
                 if ui.small_button(chevron).clicked() {
                     self.log_open = !self.log_open;
                 }
-                if sized_button(ui, Icon::Copy, false, "Copy this text", 28.0, 15.0).clicked() {
+                if sized_button(ui, Icon::Copy, false, crate::t!("Copy this text"), 28.0, 15.0).clicked() {
                     let t = self.log_text();
                     ui.ctx().copy_text(t);
                 }
-                if sized_button(ui, Icon::Wrap, self.log_wrap, "Wrap long lines", 28.0, 16.0).clicked() {
+                if sized_button(ui, Icon::Wrap, self.log_wrap, crate::t!("Wrap long lines"), 28.0, 16.0).clicked() {
                     self.log_wrap = !self.log_wrap;
                 }
                 ui.add_space(8.0);
-                for (tab, label) in [(LogTab::Log, "Full log".to_string()), (LogTab::Packages, format!("Packages ({missing} missing)")), (LogTab::Problems, problems_tab(errs, warns))] {
+                for (tab, label) in [
+                    (LogTab::Log, crate::t!("Full log").to_string()),
+                    (LogTab::Packages, tfill!(crate::t!("Packages ({0} missing)"), missing)),
+                    (LogTab::Problems, problems_tab(errs, warns)),
+                ] {
                     if ui.add(Button::selectable(self.log_tab == tab, RichText::new(label).size(13.0))).clicked() {
                         self.log_tab = tab;
                         self.log_open = true;
@@ -228,7 +253,7 @@ impl App {
                 LogTab::Problems => self.problems_list(ui),
                 LogTab::Packages => self.packages_list(ui),
                 LogTab::Log => {
-                    let t = if self.full_log.is_empty() { "Compile to see the full log here." } else { self.full_log.as_str() };
+                    let t = if self.full_log.is_empty() { crate::t!("Compile to see the full log here.") } else { self.full_log.as_str() };
                     ui.add(Label::new(RichText::new(t).monospace().size(12.5)).selectable(true));
                 }
             }
@@ -238,24 +263,33 @@ impl App {
     fn log_text(&self) -> String {
         match self.log_tab {
             LogTab::Log => self.full_log.clone(),
-            LogTab::Problems => self.problems.iter().map(|p| format!("{}{}", p.line.map(|l| format!("line {l}: ")).unwrap_or_default(), p.message)).collect::<Vec<_>>().join("\n"),
+            LogTab::Problems => self.problems.iter().map(|p| format!("{}{}", p.line.map(|l| tfill!(crate::t!("line {0}: "), l)).unwrap_or_default(), p.message)).collect::<Vec<_>>().join("\n"),
             LogTab::Packages => self.reqs.iter().filter(|r| !r.found).map(|r| format!("{} {}: {}", r.kind.label(), r.name, r.hint)).collect::<Vec<_>>().join("\n"),
         }
     }
 
     fn problems_list(&mut self, ui: &mut Ui) {
         if self.problems.is_empty() {
-            ui.label(RichText::new("No problems.").color(MUTED));
+            ui.label(RichText::new(crate::t!("No problems.")).color(MUTED));
         }
         // Errors first, then warnings, each under its own heading: a warning does not stop the build.
-        for (errors, title, color, word) in [(true, "Errors", BAD, "Error"), (false, "Warnings", WARN, "Warning")] {
+        for (errors, color, word) in [(true, BAD, crate::t!("Error")), (false, WARN, crate::t!("Warning"))] {
             let list: Vec<_> = self.problems.iter().filter(|p| p.is_error == errors).cloned().collect();
             if list.is_empty() {
                 continue;
             }
-            let note = if errors { "these stop the slides from being built" } else { "these do not stop the build, but are worth a look" };
+            let heading = if errors {
+                tfill!(crate::t!("Errors ({0})"), list.len())
+            } else {
+                tfill!(crate::t!("Warnings ({0})"), list.len())
+            };
+            let note = if errors {
+                crate::t!("these stop the slides from being built")
+            } else {
+                crate::t!("these do not stop the build, but are worth a look")
+            };
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{title} ({})", list.len())).color(color).strong().size(13.5));
+                ui.label(RichText::new(heading).color(color).strong().size(13.5));
                 ui.label(RichText::new(note).color(MUTED).size(12.5));
             });
             for p in list {
@@ -265,12 +299,12 @@ impl App {
                         let (chip, _) = ui.allocate_exact_size(vec2(62.0, 18.0), Sense::hover());
                         ui.painter().rect_filled(chip, 4.0, color.gamma_multiply(0.14));
                         ui.painter().text(chip.center(), Align2::CENTER_CENTER, word, FontId::proportional(11.5), color);
-                        let where_ = p.line.map(|l| format!("line {l}: ")).unwrap_or_default();
+                        let where_ = p.line.map(|l| tfill!(crate::t!("line {0}: "), l)).unwrap_or_default();
                         let text = if errors { color } else { Color32::from_rgb(120, 80, 20) };
                         ui.add(Label::new(RichText::new(format!("{where_}{}", p.message)).color(text).size(13.5)).sense(Sense::click()))
                     })
                     .inner
-                    .on_hover_text("Click to go to this line");
+                    .on_hover_text(crate::t!("Click to go to this line"));
                 if r.clicked() {
                     if let (Some(l), Some(s)) = (p.line, &mut self.src) {
                         s.goto_line = Some(l);
@@ -283,13 +317,13 @@ impl App {
 
     fn packages_list(&mut self, ui: &mut Ui) {
         if self.src.is_none() {
-            ui.label(RichText::new("Open a .tex file to check what it needs.").color(MUTED));
+            ui.label(RichText::new(crate::t!("Open a .tex file to check what it needs.")).color(MUTED));
             return;
         }
         if self.req_rx.is_some() {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("Checking packages…");
+                ui.label(crate::t!("Checking packages…"));
             });
         }
         if let Some(w) = &self.req_warning {
@@ -297,18 +331,23 @@ impl App {
         }
         let missing: Vec<_> = self.reqs.iter().filter(|r| !r.found).cloned().collect();
         if missing.is_empty() && self.req_rx.is_none() && !self.reqs.is_empty() {
-            ui.label(RichText::new(format!("All {} requirements found.", self.reqs.len())).color(LEAF_DARK).size(13.5));
+            ui.label(RichText::new(tfill!(crate::t!("All {0} requirements found."), self.reqs.len())).color(LEAF_DARK).size(13.5));
         }
         for r in missing {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(format!("Missing {}: {}", r.kind.label().to_lowercase(), r.name)).color(BAD).size(13.5));
+                ui.label(RichText::new(tfill!(crate::t!("Missing {0}: {1}"), r.kind.label().to_lowercase(), r.name)).color(BAD).size(13.5));
                 ui.label(RichText::new(r.hint).monospace().size(12.5).color(MUTED));
             });
         }
-        CollapsingHeader::new(format!("Everything checked ({})", self.reqs.len())).show(ui, |ui| {
+        CollapsingHeader::new(tfill!(crate::t!("Everything checked ({0})"), self.reqs.len())).show(ui, |ui| {
             for r in &self.reqs {
                 let c = if r.found { MUTED } else { BAD };
-                ui.label(RichText::new(format!("{} {}: {}", if r.found { "Found" } else { "Missing" }, r.kind.label().to_lowercase(), r.name)).color(c).size(12.5));
+                let text = if r.found {
+                    tfill!(crate::t!("Found {0}: {1}"), r.kind.label().to_lowercase(), r.name)
+                } else {
+                    tfill!(crate::t!("Missing {0}: {1}"), r.kind.label().to_lowercase(), r.name)
+                };
+                ui.label(RichText::new(text).color(c).size(12.5));
             }
         });
     }
@@ -317,9 +356,9 @@ impl App {
         let Some(mut src) = self.src.take() else {
             ui.vertical_centered(|ui| {
                 ui.add_space(80.0);
-                ui.label(RichText::new("No LaTeX source is open").size(18.0));
-                ui.label("Open a .tex file to edit it here and watch the slides update.");
-                if ui.button("Open LaTeX file…").clicked() {
+                ui.label(RichText::new(crate::t!("No LaTeX source is open")).size(18.0));
+                ui.label(crate::t!("Open a .tex file to edit it here and watch the slides update."));
+                if ui.button(crate::t!("Open LaTeX file…")).clicked() {
                     let c = ui.ctx().clone();
                     self.run(Action::Open, &c);
                 }
@@ -433,7 +472,7 @@ impl App {
                     let folded = src.folded.contains(&r.start);
                     let hit = Rect::from_min_size(pos2(g.left(), y), vec2(size * 1.3, row_h));
                     let resp = ui.interact(hit, sid("tex-fold").with(r.start), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
-                    let tip = if folded { "Unfold" } else { "Fold" };
+                    let tip = if folded { crate::t!("Unfold") } else { crate::t!("Fold") };
                     let resp = resp.on_hover_text(format!("{tip} {}", fold_label(r)));
                     let c = if resp.hovered() { INK } else if folded { MUTED } else { Color32::from_gray(190) };
                     let m = hit.center();
@@ -445,11 +484,11 @@ impl App {
                     }
                     if folded {
                         let x = line_right.get(r.start - 1).copied().unwrap_or(g.right()) + size * 0.6;
-                        let label = format!("⋯ {} lines", r.end - r.start);
+                        let label = tfill!(crate::t!("⋯ {0} lines"), r.end - r.start);
                         let font = FontId::proportional(size * 0.85);
                         let galley = ui.painter().layout_no_wrap(label, font, MUTED);
                         let chip = Rect::from_min_size(pos2(x, y + (row_h - galley.size().y) / 2.0 - 1.0), galley.size() + vec2(10.0, 2.0));
-                        let chip_resp = ui.interact(chip, sid("tex-fold-chip").with(r.start), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text("Unfold");
+                        let chip_resp = ui.interact(chip, sid("tex-fold-chip").with(r.start), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text(crate::t!("Unfold"));
                         ui.painter().rect_filled(chip, 4.0, if chip_resp.hovered() { LEAF_SOFT } else { Color32::from_gray(232) });
                         ui.painter().galley(chip.min + vec2(5.0, 1.0), galley, MUTED);
                         if chip_resp.clicked() {
@@ -528,10 +567,10 @@ impl App {
             }
             let n = self.deck.slides.len();
             if n == 0 {
-                ui.label(RichText::new("No slides yet. Compile to see them here.").color(MUTED).size(13.0));
+                ui.label(RichText::new(crate::t!("No slides yet. Compile to see them here.")).color(MUTED).size(13.0));
             } else {
-                ui.label(RichText::new(format!("Slide {} (page {} of {n})", self.frame() + 1, self.cur + 1)).color(MUTED).size(13.0));
-                ui.label(RichText::new("Double-click for source. Wheel to zoom.").color(MUTED).size(12.5));
+                ui.label(RichText::new(tfill!(crate::t!("Slide {0} (page {1} of {2})"), self.frame() + 1, self.cur + 1, n)).color(MUTED).size(13.0));
+                ui.label(RichText::new(crate::t!("Double-click for source. Wheel to zoom.")).color(MUTED).size(12.5));
             }
         });
         // The slide on top, as wide as the panel allows at its own shape, and its notes below in whatever
@@ -542,7 +581,7 @@ impl App {
         let idx = self.cur;
         let Some(sl) = self.deck.slides.get(idx).cloned() else { return };
         let caption = CAPTION;
-        ui.painter().text(pos2(notes.left(), notes.top() - caption / 2.0), Align2::LEFT_CENTER, "Notes", FontId::proportional(13.0), MUTED);
+        ui.painter().text(pos2(notes.left(), notes.top() - caption / 2.0), Align2::LEFT_CENTER, crate::t!("Notes"), FontId::proportional(13.0), MUTED);
         ui.painter().rect_filled(notes, 0.0, Color32::from_rgb(228, 228, 228));
         ui.painter().rect_stroke(notes, 0.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
         self.notes_panel(ui, notes, (notes.width() / 1000.0).clamp(0.5, 1.1));
@@ -751,10 +790,11 @@ mod tests {
 
     #[test]
     fn the_problems_tab_counts_errors_and_warnings_apart() {
-        assert_eq!(problems_tab(0, 0), "Problems (0)");
-        assert_eq!(problems_tab(0, 8), "Problems: 8 warnings");
-        assert_eq!(problems_tab(1, 0), "Problems: 1 error");
-        assert_eq!(problems_tab(2, 1), "Problems: 2 errors, 1 warning");
+        // The tab's name is translated, so it is compared with the same text from the table.
+        assert_eq!(problems_tab(0, 0), crate::t!("Problems (0)"));
+        assert_eq!(problems_tab(0, 8), tfill!(crate::t!("Problems: {0} warnings"), 8));
+        assert_eq!(problems_tab(1, 0), crate::t!("Problems: 1 error"));
+        assert_eq!(problems_tab(2, 1), tfill!(crate::t!("Problems: {0} errors, 1 warning"), 2));
     }
 
     #[test]

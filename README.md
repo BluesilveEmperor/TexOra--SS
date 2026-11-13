@@ -44,6 +44,7 @@ can be edited in the built-in LaTeX studio or in any other editor.
 | **Navigation**           | Contents, bookmarks, question marks and full-text search in a sidebar. Tabs for several presentations.                                         |
 | **Analytics**            | Time on each slide for every rehearsal, compared with the previous one.                                                                        |
 | **Tools**                | Configurable shortcuts, a system check, a command-line interface and update notices.                                                           |
+| **Languages**            | English and Simplified Chinese, chosen in Settings; the change is instant and is remembered.                                                  |
 
 ## Download and install
 
@@ -485,6 +486,9 @@ projector; some players start paused.
   exports CSV.
 - **Settings** covers text size, the LaTeX engine, required packages, video, notes, updates and every
   keyboard shortcut.
+- **Settings > Language** chooses the language of the interface: English or Simplified Chinese. The
+  whole interface, the built-in guide and the `--help` text change at once, and the choice is
+  remembered.
 - The **?** menu has **Documentation**, **System check**, **Command-line tool**, **Keyboard
   shortcuts**, **Check for updates** and **About TeXora**.
 

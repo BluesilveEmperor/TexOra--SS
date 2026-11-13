@@ -2,6 +2,22 @@
 
 All notable changes to TeXora. The newest version is first.
 
+## Unreleased
+
+### New
+
+- **A language of your own: Simplified Chinese.** The whole interface — menus, panels, buttons, the
+  presenter screen, the studio, the command-line help and the built-in guide — can be read in
+  Simplified Chinese. Choose it in **Settings > Language**; the change is instant and is remembered
+  with the other settings. English stays the language of the source, so an English install is
+  unchanged, and any string without a translation simply stays in English rather than going blank.
+  The Chinese text uses the fonts of the system, so it needs no extra files in the package.
+
+### Fixed
+
+- The Video Guide template failed to compile on Windows: TeX's path search does not understand the
+  `\\?\` prefix Windows adds to an absolute path, so the package `texoravideo` was not found.
+
 ## 1.5.3
 
 ### Fixed

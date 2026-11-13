@@ -56,36 +56,38 @@ impl Session {
         if target_min > 0.0 {
             let d = self.total_secs / 60.0 - target_min;
             if d.abs() < 0.5 {
-                out.push("You finished on your target time.".to_string());
+                out.push(crate::t!("You finished on your target time.").to_string());
+            } else if d > 0.0 {
+                out.push(crate::tfill!(crate::t!("You ran {0} minutes over your target."), format!("{:.1}", d.abs())));
             } else {
-                out.push(format!("You ran {:.1} minutes {} your target.", d.abs(), if d > 0.0 { "over" } else { "under" }));
+                out.push(crate::tfill!(crate::t!("You ran {0} minutes under your target."), format!("{:.1}", d.abs())));
             }
         }
         let mean = times.iter().map(|t| t.1).sum::<f32>() / shown as f32;
         if let Some((i, t)) = times.iter().copied().max_by(|a, b| a.1.total_cmp(&b.1)) {
             if t > mean * 1.5 && t > 30.0 {
-                out.push(format!("Slide {} took {} ({:.1} times your average).", i + 1, fmt_time(t), t / mean));
+                out.push(crate::tfill!(crate::t!("Slide {0} took {1} ({2} times your average)."), i + 1, fmt_time(t), format!("{:.1}", t / mean)));
             }
         }
         let rushed: Vec<String> = times.iter().filter(|(_, t)| *t >= 0.5 && *t < 4.0).map(|(i, _)| (i + 1).to_string()).collect();
         if !rushed.is_empty() {
-            out.push(format!("Very quick on slide(s) {}. Skip them or say why they matter.", rushed.join(", ")));
+            out.push(crate::tfill!(crate::t!("Very quick on slide(s) {0}. Skip them or say why they matter."), rushed.join(", ")));
         }
         let skipped: Vec<String> = (0..talk_frames)
             .filter(|i| self.per_frame.get(*i).copied().unwrap_or(0.0) < 0.5)
             .map(|i| (i + 1).to_string())
             .collect();
         if !skipped.is_empty() {
-            out.push(format!("Not shown: slide(s) {}.", skipped.join(", ")));
+            out.push(crate::tfill!(crate::t!("Not shown: slide(s) {0}."), skipped.join(", ")));
         }
         let revisit: Vec<String> =
             self.visits.iter().enumerate().take(talk_frames).filter(|(_, v)| **v > 1).map(|(i, _)| (i + 1).to_string()).collect();
         if !revisit.is_empty() {
-            out.push(format!("You came back to slide(s) {}.", revisit.join(", ")));
+            out.push(crate::tfill!(crate::t!("You came back to slide(s) {0}."), revisit.join(", ")));
         }
         if !self.questions.is_empty() {
             let q: Vec<String> = self.questions.iter().map(|f| (f + 1).to_string()).collect();
-            out.push(format!("Questions came up on slide(s) {}. Worth a clearer explanation there.", q.join(", ")));
+            out.push(crate::tfill!(crate::t!("Questions came up on slide(s) {0}. Worth a clearer explanation there."), q.join(", ")));
         }
         out
     }
@@ -168,11 +170,11 @@ mod tests {
     #[test]
     fn insights_name_the_slow_quick_skipped_and_questioned_slides() {
         let all = session().insights(4, 2.0).join(" | ");
-        assert!(all.contains("1.7 minutes over"), "{all}");
-        assert!(all.contains("Slide 2 took 03:20"), "{all}");
-        assert!(all.contains("Very quick on slide(s) 3"), "{all}");
-        assert!(all.contains("Not shown: slide(s) 4"), "{all}");
-        assert!(all.contains("Questions came up on slide(s) 2"), "{all}");
+        assert!(all.contains(&crate::tfill!(crate::t!("You ran {0} minutes over your target."), "1.7")), "{all}");
+        assert!(all.contains(&crate::tfill!(crate::t!("Slide {0} took {1} ({2} times your average)."), 2, "03:20", "2.7")), "{all}");
+        assert!(all.contains(&crate::tfill!(crate::t!("Very quick on slide(s) {0}. Skip them or say why they matter."), "3")), "{all}");
+        assert!(all.contains(&crate::tfill!(crate::t!("Not shown: slide(s) {0}."), "4")), "{all}");
+        assert!(all.contains(&crate::tfill!(crate::t!("Questions came up on slide(s) {0}. Worth a clearer explanation there."), "2")), "{all}");
     }
 
     #[test]
@@ -180,7 +182,10 @@ mod tests {
         let mut s = session();
         s.tick(5, 0.0);
         let all = s.insights(3, 0.0).join(" | ");
-        assert!(!all.contains("Not shown"), "{all}");
+        // The message that lists the slides not shown begins with this text.
+        let full = crate::t!("Not shown: slide(s) {0}.");
+        let marker = full.split("{0}").next().unwrap_or(full);
+        assert!(!all.contains(marker), "{all}");
     }
 
     #[test]
